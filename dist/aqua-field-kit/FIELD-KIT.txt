@@ -1,0 +1,8 @@
+Aqua Field Kit
+
+Open index.html on a phone, or serve this folder over HTTPS for installable PWA behaviour.
+
+For network sync, set Node URL in the app to a reachable Aqua node, for example:
+https://your-node.example.com
+
+For nearby testing without a reachable node, export a bundle file on one phone and import it on another.

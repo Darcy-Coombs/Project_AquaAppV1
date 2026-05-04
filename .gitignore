@@ -1,0 +1,7 @@
+node_modules/
+.aqua-node-*/
+*.log
+*.err.log
+project_aqua_book_text.txt
+.webtester-*.png
+.field-web-smoke.png

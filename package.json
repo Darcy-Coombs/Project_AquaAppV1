@@ -1,0 +1,17 @@
+{
+  "name": "project-aqua-v0.1",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test --test-isolation=none packages/tests/all.test.ts",
+    "dev:node": "node packages/node/server.ts",
+    "dev:web": "node packages/web/dev-server.ts",
+    "dev:field": "node packages/field-web/dev-server.ts",
+    "pack:field": "node scripts/pack-field.mjs"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
