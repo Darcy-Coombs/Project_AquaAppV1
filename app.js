@@ -426,7 +426,7 @@ const actions = {
     toast('Bundle copied');
   }),
   importBundle: () => run(async () => {
-    importEvents(JSON.parse(store.forms.importText));
+    await importEvents(JSON.parse(store.forms.importText));
     toast('Bundle imported');
   }),
   checkBluetooth: () => run(async () => {
@@ -437,6 +437,7 @@ const actions = {
 };
 
 async function addLocalEvent(event) {
+  await assertValidEvent(event, store.events);
   if (!store.events.some((item) => item.id === event.id)) store.events.push(event);
   if (!store.pending.includes(event.id)) store.pending.push(event.id);
   saveStore();
@@ -459,17 +460,21 @@ async function syncNode() {
 async function pullNode() {
   const res = await fetch(`${store.nodeUrl}/events`);
   if (!res.ok) throw new Error(await res.text());
-  importEvents(await res.json(), false);
+  await importEvents(await res.json(), false);
   store.lastSync = new Date().toISOString();
   saveStore();
 }
 
-function importEvents(input, markPending = false) {
+async function importEvents(input, markPending = false) {
   const events = Array.isArray(input) ? input : input.events;
   if (!Array.isArray(events)) throw new Error('Invalid bundle.');
-  for (const event of events) {
+  const accepted = [...store.events].sort(compareEvents);
+  for (const event of events.slice().sort(compareEvents)) {
     if (!store.events.some((item) => item.id === event.id)) {
+      await assertValidEvent(event, accepted);
       store.events.push(event);
+      accepted.push(event);
+      accepted.sort(compareEvents);
       if (markPending) store.pending.push(event.id);
     }
   }
@@ -495,6 +500,196 @@ function postBody(body) {
   return { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) };
 }
 
+async function assertValidEvent(event, currentEvents) {
+  const check = await validateEvent(event, currentEvents);
+  if (!check.ok) throw new Error(`Rejected event ${short(event?.id || 'unknown')}: ${check.reason}`);
+}
+
+async function validateEvent(event, currentEvents) {
+  if (!event || typeof event !== 'object') return fail('event-not-object');
+  if (event.protocol !== BASE_PROTOCOL) return fail('unsupported-protocol');
+  if (!['system', 'identity', 'money', 'governance', 'dex', 'chat'].includes(event.module)) return fail('unknown-module');
+  if (event.moduleVersion !== MODULE_VERSION) return fail('unsupported-module-version');
+  if (typeof event.type !== 'string' || !event.type) return fail('event-type-required');
+  if (!Number.isFinite(event.createdAt)) return fail('invalid-created-at');
+  if (typeof event.author !== 'string' || !event.author) return fail('event-author-required');
+  if (!Array.isArray(event.parents) || event.parents.length > 2) return fail('invalid-parents');
+  if (!event.parents.every((parent) => typeof parent === 'string')) return fail('invalid-parent-id');
+  if (!event.parents.every((parent) => currentEvents.some((item) => item.id === parent))) return fail('unknown-parent');
+  if (!event.payload || typeof event.payload !== 'object' || Array.isArray(event.payload)) return fail('invalid-payload');
+  if (event.id !== await eventIdFor(event)) return fail('event-id-mismatch');
+  if (!await verifyEventSignature(event)) return fail('invalid-signature');
+  return validateModuleEvent(event, currentEvents);
+}
+
+async function eventIdFor(event) {
+  return sha256Hex(canonicalJson(eventSigningBody(event)));
+}
+
+async function verifyEventSignature(event) {
+  try {
+    const publicKey = await crypto.subtle.importKey('spki', base64ToArrayBuffer(event.author), { name: 'Ed25519' }, false, ['verify']);
+    return crypto.subtle.verify({ name: 'Ed25519' }, publicKey, base64ToArrayBuffer(event.signature), textBytes(canonicalJson(eventSigningBody(event))));
+  } catch {
+    return false;
+  }
+}
+
+function eventSigningBody(event) {
+  return {
+    protocol: event.protocol ?? BASE_PROTOCOL,
+    module: event.module ?? 'system',
+    moduleVersion: event.moduleVersion ?? MODULE_VERSION,
+    type: event.type ?? 'system.unknown',
+    createdAt: event.createdAt ?? Date.now(),
+    author: event.author ?? '',
+    parents: event.parents ?? [],
+    payload: event.payload ?? {}
+  };
+}
+
+function validateModuleEvent(event, currentEvents) {
+  if (event.module === 'identity') return validateIdentityEvent(event);
+  if (event.module === 'money') return validateMoneyEvent(event, currentEvents);
+  if (event.module === 'governance') return validateGovernanceEvent(event, currentEvents);
+  if (event.module === 'chat') return validateChatEvent(event, currentEvents);
+  if (event.module === 'dex') return validateDexEvent(event, currentEvents);
+  return { ok: true };
+}
+
+function validateIdentityEvent(event) {
+  if (event.type === 'identity.claim') {
+    if (typeof event.payload.name !== 'string' || !event.payload.name.trim()) return fail('identity-name-required');
+    return { ok: true };
+  }
+  if (event.type === 'identity.pohw_attest') {
+    if (typeof event.payload.subject !== 'string' || !event.payload.subject) return fail('pohw-subject-required');
+    if (!['unverified', 'locally_verified', 'vouched', 'challenged', 'archived'].includes(event.payload.status)) return fail('invalid-pohw-status');
+    return { ok: true };
+  }
+  return fail('identity-type-not-allowed');
+}
+
+function validateMoneyEvent(event, currentEvents) {
+  const ids = identityState(currentEvents).verified;
+  if (event.type === 'money.genesis') {
+    if (!positive(event.payload.earthTotal)) return fail('invalid-earth-total');
+    if (currentEvents.some((item) => item.type === 'money.genesis')) return fail('duplicate-genesis');
+    return { ok: true };
+  }
+  if (event.type === 'money.issue_aqua') {
+    if (!positive(event.payload.amount)) return fail('invalid-issue-amount');
+    if (!ids.includes(event.payload.to)) return fail('issue-recipient-not-verified');
+    return { ok: true };
+  }
+  if (event.type === 'money.transfer') {
+    if (event.payload.from && event.payload.from !== event.author) return fail('transfer-from-author-mismatch');
+    if (typeof event.payload.to !== 'string' || !event.payload.to) return fail('transfer-recipient-required');
+    if (!positive(event.payload.amount)) return fail('invalid-transfer-amount');
+    const fire = round(event.payload.amount * 0.04);
+    if (round(event.payload.fireAmount) !== fire) return fail('invalid-fire-amount');
+    if (round(event.payload.netAmount) !== round(event.payload.amount - fire)) return fail('invalid-net-amount');
+    if (!canSpend(currentEvents, event.author, event.payload.amount)) return fail('insufficient-balance');
+    return { ok: true };
+  }
+  return fail('money-type-not-allowed');
+}
+
+function validateGovernanceEvent(event, currentEvents) {
+  const ids = identityState(currentEvents).verified;
+  const gov = governanceState(currentEvents);
+  if (event.type === 'governance.proposal_create') {
+    if (!ids.includes(event.author)) return fail('proposal-author-not-verified');
+    if (typeof event.payload.title !== 'string' || !event.payload.title.trim()) return fail('proposal-title-required');
+    if (!Array.isArray(event.payload.choices) || event.payload.choices.length < 2) return fail('proposal-choices-required');
+    return { ok: true };
+  }
+  if (event.type === 'governance.vote_cast') {
+    const proposal = gov.proposals.get(event.payload.proposalId);
+    if (!ids.includes(event.author)) return fail('vote-author-not-verified');
+    if (!proposal) return fail('proposal-not-found');
+    if (!proposal.payload.choices.includes(event.payload.choice)) return fail('invalid-vote-choice');
+    return { ok: true };
+  }
+  if (event.type === 'governance.proxy_set') {
+    if (!ids.includes(event.author)) return fail('proxy-author-not-verified');
+    if (!ids.includes(event.payload.proxy)) return fail('proxy-target-not-verified');
+    if (event.payload.proxy === event.author) return fail('self-proxy-not-allowed');
+    return { ok: true };
+  }
+  if (event.type === 'governance.outcome_publish') {
+    if (!ids.includes(event.author)) return fail('outcome-author-not-verified');
+    if (!gov.proposals.has(event.payload.proposalId)) return fail('proposal-not-found');
+    if (!event.payload.tally || typeof event.payload.tally !== 'object') return fail('outcome-tally-required');
+    return { ok: true };
+  }
+  return fail('governance-type-not-allowed');
+}
+
+function validateChatEvent(event, currentEvents) {
+  const ids = identityState(currentEvents).verified;
+  const chat = chatState(currentEvents);
+  if (!ids.includes(event.author)) return fail('chat-author-not-verified');
+  if (event.type === 'chat.room_create') {
+    if (typeof event.payload.roomId !== 'string' || !/^[a-z0-9][a-z0-9-]{1,48}$/i.test(event.payload.roomId)) return fail('invalid-room-id');
+    if (chat.rooms.has(event.payload.roomId)) return fail('room-already-exists');
+    return { ok: true };
+  }
+  if (event.type === 'chat.message_create') {
+    if (!chat.rooms.has(event.payload.roomId)) return fail('room-not-found');
+    if (typeof event.payload.text !== 'string' || !event.payload.text.trim()) return fail('chat-message-required');
+    return { ok: true };
+  }
+  return fail('chat-type-not-allowed');
+}
+
+function validateDexEvent(event, currentEvents) {
+  const dex = dexState(currentEvents);
+  if (event.type === 'dex.quote_create') {
+    if (!['buy', 'sell'].includes(event.payload.side)) return fail('invalid-quote-side');
+    if (!positive(event.payload.amount) || !positive(event.payload.price)) return fail('invalid-quote');
+    if (!Number.isFinite(event.payload.expiresAt) || event.payload.expiresAt <= event.createdAt) return fail('quote-expired-at-create');
+    return { ok: true };
+  }
+  if (event.type === 'dex.escrow_open') {
+    if (event.payload.buyer !== event.author) return fail('escrow-buyer-author-mismatch');
+    if (typeof event.payload.seller !== 'string' || !event.payload.seller) return fail('escrow-seller-required');
+    if (!positive(event.payload.amount)) return fail('invalid-escrow-amount');
+    if (event.payload.quoteId && !dex.quotes.some((quote) => quote.id === event.payload.quoteId)) return fail('quote-not-active');
+    if (!canSpend(currentEvents, event.author, event.payload.amount)) return fail('insufficient-balance');
+    return { ok: true };
+  }
+  if (event.type === 'dex.witness_attest') {
+    if (typeof event.payload.subjectEventId !== 'string' || !event.payload.subjectEventId) return fail('witness-subject-required');
+    return { ok: true };
+  }
+  if (event.type === 'dex.escrow_release' || event.type === 'dex.escrow_refund') {
+    const escrow = dex.escrows.get(event.payload.escrowId);
+    if (!escrow) return fail('escrow-not-found');
+    if (escrow.status !== 'open') return fail('escrow-already-settled');
+    if (escrow.buyer !== event.payload.buyer) return fail('escrow-buyer-mismatch');
+    if (event.payload.amount !== escrow.amount) return fail('escrow-amount-mismatch');
+    if (event.type === 'dex.escrow_release') {
+      if (event.author !== escrow.seller) return fail('escrow-release-author-not-seller');
+      if (event.payload.seller !== escrow.seller) return fail('escrow-seller-mismatch');
+    }
+    return { ok: true };
+  }
+  return fail('dex-type-not-allowed');
+}
+
+function canSpend(events, pubkey, amount) {
+  return (moneyState(events).aqua.get(pubkey) || 0) >= amount;
+}
+
+function positive(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function fail(reason) {
+  return { ok: false, reason };
+}
+
 async function generateIdentityKeypair() {
   const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
   const publicKey = arrayBufferToBase64(await crypto.subtle.exportKey('spki', pair.publicKey));
@@ -504,7 +699,7 @@ async function generateIdentityKeypair() {
 
 async function createEvent(module, type, payload = {}) {
   if (!store.account) throw new Error('Create an account first.');
-  const body = signingBody({ module, type, author: store.account.publicKey, payload });
+  const body = signingBody({ module, type, author: store.account.publicKey, parents: recentParentIds(), payload });
   const text = canonicalJson(body);
   const privateKeyBase64 = await unlockPrivateKey();
   const privateKey = await crypto.subtle.importKey('pkcs8', base64ToArrayBuffer(privateKeyBase64), { name: 'Ed25519' }, false, ['sign']);
@@ -528,6 +723,10 @@ function signingBody(event) {
     parents: event.parents || [],
     payload: event.payload || {}
   };
+}
+
+function recentParentIds() {
+  return store.events.slice().sort(compareEvents).slice(-2).map((event) => event.id);
 }
 
 function transferPayload(to, amount) {
@@ -761,7 +960,7 @@ function escapeAttr(value) {
 }
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 
 render();
