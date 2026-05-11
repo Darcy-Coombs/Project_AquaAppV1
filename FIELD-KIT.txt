@@ -1,6 +1,9 @@
 Aqua Field Kit
 
-Open index.html on a phone, or serve this folder over HTTPS for installable PWA behaviour.
+For the simplest phone test, open start.html.
+It is a single-file version for phones that block local JavaScript modules.
+
+For installable PWA behaviour, serve this folder over HTTPS and open index.html.
 
 For network sync, set Node URL in the app to a reachable Aqua node, for example:
 https://your-node.example.com
