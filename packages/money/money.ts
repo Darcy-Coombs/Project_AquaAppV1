@@ -65,6 +65,7 @@ function applyMoneyEvent(state: ReturnType<typeof emptyBalanceState>, event: Aqu
     state.earthReserve = event.payload.earthTotal;
   }
   if (event.type === 'money.issue_aqua') {
+    if (!event.payload.betaDev) state.earthReserve = round(state.earthReserve - event.payload.amount);
     add(state.aqua, event.payload.to, event.payload.amount);
   }
   if (event.type === 'money.transfer') {
@@ -74,25 +75,40 @@ function applyMoneyEvent(state: ReturnType<typeof emptyBalanceState>, event: Aqu
     add(state.firePaid, from, event.payload.fireAmount);
     state.sump = round(state.sump + event.payload.fireAmount);
   }
+  if (event.type === 'money.sump_distribute') {
+    state.sump = round(state.sump - event.payload.amount);
+    add(state.aqua, event.payload.to, event.payload.amount);
+  }
 }
 
 function applyDexMoneyEffect(state: ReturnType<typeof emptyBalanceState>, event: AquaEvent) {
   if (event.type === 'dex.escrow_open') {
-    add(state.aqua, event.payload.buyer, -event.payload.amount);
-    add(state.locked, event.payload.buyer, event.payload.amount);
+    const lockedFrom = event.payload.lockedFrom ?? event.payload.buyer;
+    add(state.aqua, lockedFrom, -event.payload.amount);
+    add(state.locked, lockedFrom, event.payload.amount);
   }
   if (event.type === 'dex.escrow_release') {
-    add(state.locked, event.payload.buyer, -event.payload.amount);
-    add(state.aqua, event.payload.seller, event.payload.amount);
+    const escrow = dexEscrowFromEvents(event.payload.escrowId, event);
+    const lockedFrom = escrow?.lockedFrom ?? event.payload.buyer;
+    const amount = escrow?.amount ?? event.payload.amount;
+    add(state.locked, lockedFrom, -amount);
+    add(state.aqua, event.payload.releaseTo ?? event.payload.seller, amount);
   }
   if (event.type === 'dex.escrow_refund') {
-    add(state.locked, event.payload.buyer, -event.payload.amount);
-    add(state.aqua, event.payload.buyer, event.payload.amount);
+    const escrow = dexEscrowFromEvents(event.payload.escrowId, event);
+    const lockedFrom = escrow?.lockedFrom ?? event.payload.buyer;
+    const amount = escrow?.amount ?? event.payload.amount;
+    add(state.locked, lockedFrom, -amount);
+    add(state.aqua, lockedFrom, amount);
   }
   if (event.type === 'dex.voucher_pool_create') {
     add(state.aqua, event.payload.owner, -event.payload.amount);
     add(state.locked, event.payload.owner, event.payload.amount);
   }
+}
+
+function dexEscrowFromEvents(_escrowId: string, _settlement: AquaEvent) {
+  return undefined as undefined | { lockedFrom?: string; amount?: number };
 }
 
 export function canSpend(events: AquaEvent[], pubkey: string, amount: number): boolean {

@@ -308,6 +308,12 @@ h1 {
   color: var(--bad);
 }
 
+.pill.warn {
+  border-color: #ffdca7;
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
 .mono {
   overflow-wrap: anywhere;
   font-family: "Cascadia Mono", Consolas, monospace;

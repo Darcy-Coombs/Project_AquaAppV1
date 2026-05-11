@@ -59,11 +59,11 @@ export function createRecoveryStub(keypair: KeyPair, subject: string): AquaEvent
 
 export function identityState(events: AquaEvent[]) {
   const claims = new Map<string, AquaEvent>();
-  const pohw = new Map<string, PohwStatus>();
+  const pohw = new Map<string, PohwStatus | 'LEVEL_1_POHW' | 'BETAoverride'>();
 
   for (const event of events) {
     if (event.module !== 'identity') continue;
-    if (event.type === 'identity.claim') {
+    if (event.type === 'identity.claim' || event.type === 'identity.email_claim') {
       claims.set(event.author, event);
       if (!pohw.has(event.author)) pohw.set(event.author, 'unverified');
     }
@@ -71,10 +71,16 @@ export function identityState(events: AquaEvent[]) {
       const subject = event.payload.subject ?? event.author;
       pohw.set(subject, event.payload.status);
     }
+    if (event.type === 'identity.pohw_simple') {
+      pohw.set(event.author, 'LEVEL_1_POHW');
+    }
+    if (event.type === 'identity.beta_override' && event.payload.expiresAt > Date.now()) {
+      pohw.set(event.author, 'BETAoverride');
+    }
   }
 
   const verified = [...pohw.entries()]
-    .filter(([, status]) => status === 'locally_verified' || status === 'vouched')
+    .filter(([, status]) => status === 'locally_verified' || status === 'vouched' || status === 'LEVEL_1_POHW' || status === 'BETAoverride')
     .map(([pubkey]) => pubkey)
     .sort();
 

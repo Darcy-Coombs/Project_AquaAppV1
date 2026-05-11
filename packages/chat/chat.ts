@@ -29,7 +29,7 @@ export function chatState(events: AquaEvent[]) {
       rooms.set(event.payload.roomId, event);
       if (!messages.has(event.payload.roomId)) messages.set(event.payload.roomId, []);
     }
-    if (event.type === 'chat.message_create') {
+    if (event.type === 'chat.message_create' || event.type === 'chat.message_send') {
       if (!messages.has(event.payload.roomId)) messages.set(event.payload.roomId, []);
       messages.get(event.payload.roomId)!.push(event);
     }

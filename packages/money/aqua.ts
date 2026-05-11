@@ -8,6 +8,6 @@ export function issueWeeklyAqua(keypair: KeyPair, to: string, amount = DEFAULT_W
     module: 'money',
     type: 'money.issue_aqua',
     keypair,
-    payload: { to, amount, reason: 'weekly_verified_human_issuance' }
+    payload: { to, amount, reason: 'weekly_verified_human_issuance', betaDev: true }
   });
 }

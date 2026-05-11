@@ -1,6 +1,29 @@
-const BASE_PROTOCOL = 'aqua.base.v0.1';
-const MODULE_VERSION = 'v0.1';
-const STORE_KEY = 'aqua.field.v1';
+import {
+  createEvent,
+  generateIdentityKeypair,
+  normalizeEvent,
+  sha256Hex,
+  signEvent,
+  textBytes
+} from './protocol/events.js';
+import {
+  BETA_OVERRIDE,
+  applyEvent,
+  compareEvents,
+  deterministicCommittee,
+  getAquaBalance,
+  getIdentity,
+  isVerifiedIdentity,
+  replayEvents,
+  round,
+  tallyProposal
+} from './protocol/state.js';
+import { validateEvent } from './protocol/validator.js';
+
+const STORE_KEY = 'aqua.field.v2';
+const OLD_STORE_KEY = 'aqua.field.v1';
+const POHW_PHRASE = 'Aqua field beta';
+const WITNESS_THRESHOLD = 1;
 
 const initialStore = {
   account: null,
@@ -8,19 +31,30 @@ const initialStore = {
   pending: [],
   nodeUrl: localStorage.getItem('aqua.field.nodeUrl') || 'http://localhost:7001',
   route: localStorage.getItem('aqua.field.route') || 'home',
+  importSummary: null,
+  lastSync: null,
+  lastError: '',
   forms: {
-    name: '',
+    email: '',
     passphrase: '',
+    pohwPhrase: '',
+    pohwAnswer: '',
+    betaCode: '',
     to: '',
     amount: '25',
+    issueAmount: '480',
     proposalTitle: 'Field proposal',
     proposalBody: '',
     proposalId: '',
     voteChoice: 'yes',
     proxy: '',
+    committeeRound: 'round-1',
+    committeeCount: '3',
     chatRoom: 'chaos-harbour',
     chatRoomName: 'Chaos Harbour',
     chatText: '',
+    roomCreditTo: '',
+    roomCreditAmount: '5',
     quoteSide: 'sell',
     quoteAmount: '10',
     quotePrice: '1',
@@ -30,9 +64,7 @@ const initialStore = {
     escrowId: '',
     escrowBuyer: '',
     importText: ''
-  },
-  lastSync: null,
-  lastError: ''
+  }
 };
 
 let store = loadStore();
@@ -49,15 +81,26 @@ const routes = [
 ];
 
 function loadStore() {
-  const raw = localStorage.getItem(STORE_KEY);
+  const raw = localStorage.getItem(STORE_KEY) || localStorage.getItem(OLD_STORE_KEY);
   if (!raw) return structuredClone(initialStore);
-  return { ...structuredClone(initialStore), ...JSON.parse(raw), forms: { ...initialStore.forms, ...(JSON.parse(raw).forms || {}) } };
+  const parsed = JSON.parse(raw);
+  return {
+    ...structuredClone(initialStore),
+    ...parsed,
+    forms: { ...initialStore.forms, ...(parsed.forms || {}) },
+    importSummary: parsed.importSummary || null
+  };
 }
 
 function saveStore() {
-  localStorage.setItem(STORE_KEY, JSON.stringify(store));
+  const safeStore = { ...store, forms: { ...store.forms, betaCode: '' } };
+  localStorage.setItem(STORE_KEY, JSON.stringify(safeStore));
   localStorage.setItem('aqua.field.nodeUrl', store.nodeUrl);
   localStorage.setItem('aqua.field.route', store.route);
+}
+
+function stateNow() {
+  return replayEvents(store.events, { now: Date.now() });
 }
 
 function setForm(key, value) {
@@ -95,8 +138,8 @@ async function run(task) {
 }
 
 function render() {
-  const state = deriveState(store.events);
-  const account = store.account;
+  const state = stateNow();
+  const identity = currentIdentity(state);
   app.innerHTML = `
     <div class="shell">
       <header class="top">
@@ -105,67 +148,85 @@ function render() {
             <div class="mark">A</div>
             <div>
               <h1>Aqua Field</h1>
-              <p class="small">${account ? short(account.publicKey) : 'No account yet'}</p>
+              <p class="small">${store.account ? short(store.account.publicKey) : 'No account yet'}</p>
             </div>
           </div>
-          <div class="status"><span class="dot ${account ? 'ok' : ''}"></span>${account ? 'Ready' : 'Start here'}</div>
+          <div class="status"><span class="dot ${store.account ? 'ok' : ''}"></span>${identityLabel(identity)}</div>
         </div>
         <nav class="tabs">
           ${routes.map(([id, label]) => `<button class="${store.route === id ? 'active' : ''}" data-route="${id}">${label}</button>`).join('')}
         </nav>
       </header>
       <main class="content">${screen(store.route, state)}</main>
-      <footer class="footer">Aqua Field stores keys and events in this browser on this phone.</footer>
+      <footer class="footer">Aqua Field keeps raw email and encrypted keys only in this browser. Protocol events contain hashes and signatures.</footer>
     </div>
   `;
   bind();
 }
 
 function screen(route, state) {
-  if (route === 'account') return accountScreen();
+  if (route === 'account') return accountScreen(state);
   if (route === 'money') return moneyScreen(state);
   if (route === 'civic') return civicScreen(state);
   if (route === 'chat') return chatScreen(state);
   if (route === 'dex') return dexScreen(state);
-  if (route === 'sync') return syncScreen(state);
+  if (route === 'sync') return syncScreen();
   return homeScreen(state);
 }
 
 function homeScreen(state) {
   const balance = currentBalance(state);
+  const identity = currentIdentity(state);
   return `
     <section class="metrics">
       ${metric('Aqua', balance.aqua, 'accent')}
-      ${metric('Locked', balance.locked, 'blue')}
-      ${metric('Events', store.events.length)}
-      ${metric('Pending', store.pending.length, 'warn')}
+      ${metric('Fire Paid', balance.firePaid, 'warn')}
+      ${metric('Sump', balance.sump)}
+      ${metric('Earth', balance.earth, 'blue')}
     </section>
     <section class="panel">
-      <div class="panel-head"><h2>Field Test</h2><span class="pill ${store.account ? 'ok' : 'bad'}">${store.account ? 'Account ready' : 'Create account'}</span></div>
-      <p class="small">Use this on several phones. Create one account per phone, sync each phone to the same reachable Aqua node, then try transfers, proposals, votes, proxy votes, chat rooms, and DEX escrow.</p>
+      <div class="panel-head"><h2>Field Machine</h2>${identityBadge(identity)}</div>
+      ${identity.betaOverrideActive ? '<span class="pill warn">BETA OVERRIDE ACTIVE</span>' : ''}
+      <p class="small">Validator is active for local events, imports, and node sync. LEVEL_0 can chat. Verified PoHW or temporary beta override is required for UBI, voting, proxying, committee actions, and DEX witness work.</p>
       <div class="actions">
-        <button data-route="account">Create account</button>
-        <button class="secondary" data-route="sync">Sync</button>
+        <button data-route="account">Account</button>
         <button class="secondary" data-route="money">Send</button>
+        <button class="secondary" data-route="sync">Sync</button>
       </div>
     </section>
-    ${eventPanel('Recent local events', store.events.slice(-6).reverse())}
+    ${eventPanel('Recent accepted events', store.events.slice(-6).reverse())}
   `;
 }
 
-function accountScreen() {
+function accountScreen(state) {
+  const identity = currentIdentity(state);
   return `
     <section class="panel">
-      <div class="panel-head"><h2>Account</h2><span class="pill ${store.account ? 'ok' : 'bad'}">${store.account ? 'Created' : 'Missing'}</span></div>
+      <div class="panel-head"><h2>Identity</h2>${identityBadge(identity)}</div>
+      ${identity.betaOverrideActive ? '<span class="pill warn">BETA OVERRIDE ACTIVE</span>' : ''}
       <div class="grid two">
-        ${field('Name', 'name')}
+        ${field('Email', 'email', 'type="email" autocomplete="email"')}
         ${field('Passphrase', 'passphrase', 'type="password" autocomplete="new-password"')}
       </div>
       <div class="actions">
-        <button data-action="createAccount">Create New Account</button>
+        <button data-action="createAccount">Start Account</button>
         <button class="secondary" data-action="copyPubkey" ${store.account ? '' : 'disabled'}>Copy Public Key</button>
       </div>
-      <pre>${escapeHtml(JSON.stringify(publicAccount(), null, 2))}</pre>
+      <pre>${escapeHtml(JSON.stringify(publicAccount(identity), null, 2))}</pre>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Simple PoHW</h2><span class="pill">beta human check</span></div>
+      <p class="small">Phrase: ${escapeHtml(POHW_PHRASE)}</p>
+      <div class="grid two">
+        ${field('Type phrase exactly', 'pohwPhrase')}
+        ${field('Answer one simple prompt', 'pohwAnswer')}
+      </div>
+      <div class="actions"><button data-action="completePohw">Complete PoHW</button></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Beta Override</h2><span class="pill bad">temporary</span></div>
+      ${field('Override code', 'betaCode', 'type="password" autocomplete="off"')}
+      <div class="actions"><button class="warn" data-action="applyBetaOverride">Apply Override</button></div>
     </section>
   `;
 }
@@ -175,29 +236,36 @@ function moneyScreen(state) {
   return `
     <section class="metrics">
       ${metric('Aqua', balance.aqua, 'accent')}
+      ${metric('Locked', balance.locked, 'blue')}
       ${metric('Fire Paid', balance.firePaid, 'warn')}
       ${metric('Sump', balance.sump)}
-      ${metric('Earth', balance.earthReserve, 'blue')}
     </section>
     <section class="panel">
-      <div class="panel-head"><h2>Transfer</h2><span class="pill">4% Fire</span></div>
+      <div class="panel-head"><h2>Transfer</h2><span class="pill">4% Fire to Sump</span></div>
       <div class="grid">
         ${area('Receiver public key', 'to')}
         ${field('Amount', 'amount', 'type="number" min="0" step="1"')}
       </div>
       <div class="actions">
-        <button data-action="sendAqua">Create Transfer</button>
-        <button class="secondary" data-action="claimAqua">Claim Weekly Aqua From Node</button>
+        <button data-action="sendAqua">Send Aqua</button>
+        <button class="secondary" data-action="issueBetaAqua">Issue Beta Aqua</button>
       </div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Reserve</h2><span class="pill">Earth ${escapeHtml(balance.earth)}</span></div>
+      ${field('Beta issue amount', 'issueAmount', 'type="number" min="0" step="1"')}
+      <p class="small">Beta issue events are explicitly marked beta/dev. Production issuance must reduce Earth.</p>
     </section>
   `;
 }
 
 function civicScreen(state) {
-  const tally = store.forms.proposalId ? tallyProposal(store.events, store.forms.proposalId) : null;
+  const proposalId = store.forms.proposalId.trim();
+  const tally = proposalId ? tallyProposal(state, proposalId) : null;
+  const optedIn = store.account ? state.governance.committeeOptIn.has(store.account.publicKey) : false;
   return `
     <section class="panel">
-      <div class="panel-head"><h2>Proposal</h2><span class="pill">one verified human, one vote</span></div>
+      <div class="panel-head"><h2>Proposal</h2><span class="pill">verified only</span></div>
       <div class="grid">
         ${field('Title', 'proposalTitle')}
         ${area('Body', 'proposalBody')}
@@ -205,7 +273,7 @@ function civicScreen(state) {
       <div class="actions"><button data-action="createProposal">Create Proposal</button></div>
     </section>
     <section class="panel">
-      <div class="panel-head"><h2>Vote / Proxy / Outcome</h2><span class="pill">${tally ? `${Object.keys(tally.counted).length} counted` : 'No tally'}</span></div>
+      <div class="panel-head"><h2>Vote / Proxy</h2><span class="pill">${tally ? `${Object.keys(tally.counted).length} counted` : 'No tally'}</span></div>
       <div class="grid two">
         ${field('Proposal ID', 'proposalId')}
         ${selectField('Choice', 'voteChoice', ['yes', 'no', 'abstain'])}
@@ -214,15 +282,29 @@ function civicScreen(state) {
       <div class="actions">
         <button data-action="castVote">Vote</button>
         <button class="secondary" data-action="setProxy">Set Proxy</button>
-        <button class="secondary" data-action="publishOutcome">Publish Outcome</button>
+        <button class="secondary" data-action="revokeProxy">Revoke Proxy</button>
+        <button class="secondary" data-action="copyOutcome">Publish Outcome</button>
       </div>
       <pre>${escapeHtml(JSON.stringify(tally || {}, null, 2))}</pre>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Committee</h2><span class="pill ${optedIn ? 'ok' : ''}">${optedIn ? 'opted in' : 'not opted in'}</span></div>
+      <div class="grid two">
+        ${field('Round ID', 'committeeRound')}
+        ${field('Count', 'committeeCount', 'type="number" min="1" step="1"')}
+      </div>
+      <div class="actions">
+        <button data-action="committeeOptIn">Opt In</button>
+        <button class="secondary" data-action="committeeOptOut">Opt Out</button>
+        <button class="secondary" data-action="committeeSelect">Select Committee</button>
+      </div>
     </section>
     ${eventPanel('Governance events', store.events.filter((event) => event.module === 'governance').slice(-8).reverse())}
   `;
 }
 
 function chatScreen(state) {
+  const messages = state.chat.messages.filter((event) => event.payload.roomId === store.forms.chatRoom);
   return `
     <section class="panel">
       <div class="panel-head"><h2>Chaos Chat</h2><span class="pill">${state.chat.rooms.size} rooms</span></div>
@@ -233,17 +315,32 @@ function chatScreen(state) {
       ${area('Message', 'chatText')}
       <div class="actions">
         <button data-action="createRoom">Create Room</button>
-        <button class="secondary" data-action="sendChat">Send Message</button>
+        <button class="secondary" data-action="joinRoom">Join</button>
+        <button class="secondary" data-action="sendChat">Send Chat</button>
       </div>
     </section>
-    ${eventPanel('Chat events', store.events.filter((event) => event.module === 'chat').slice(-12).reverse())}
+    <section class="panel">
+      <div class="panel-head"><h2>Room Credits</h2><span class="pill">verified or beta/dev</span></div>
+      <div class="grid two">
+        ${area('Credit recipient', 'roomCreditTo')}
+        ${field('Amount', 'roomCreditAmount', 'type="number" min="0" step="1"')}
+      </div>
+      <div class="actions">
+        <button class="secondary" data-action="issueRoomCredit">Issue Credit</button>
+        <button class="secondary" data-action="sendRoomCredit">Transfer Credit</button>
+      </div>
+    </section>
+    ${messagePanel(messages)}
+    ${eventPanel('Chat events', store.events.filter((event) => event.module === 'chat').slice(-10).reverse())}
   `;
 }
 
 function dexScreen(state) {
+  const escrow = store.forms.escrowId.trim() ? state.dex.escrows.get(store.forms.escrowId.trim()) : null;
+  const witnesses = escrow?.witnesses?.size ?? 0;
   return `
     <section class="panel">
-      <div class="panel-head"><h2>List Exchange</h2><span class="pill">${state.dex.quotes.length} active quotes</span></div>
+      <div class="panel-head"><h2>List Exchange</h2><span class="pill">${state.dex.quotes.size} quotes</span></div>
       <div class="grid two">
         ${selectField('Side', 'quoteSide', ['sell', 'buy'])}
         ${field('Amount', 'quoteAmount', 'type="number" min="0" step="1"')}
@@ -252,7 +349,7 @@ function dexScreen(state) {
       <div class="actions"><button data-action="createQuote">List Exchange</button></div>
     </section>
     <section class="panel">
-      <div class="panel-head"><h2>Verify / Swap</h2><span class="pill">${state.dex.escrows.size} escrows</span></div>
+      <div class="panel-head"><h2>Verify / Swap</h2><span class="pill">threshold ${witnesses}/${WITNESS_THRESHOLD}</span></div>
       <div class="grid">
         ${field('Quote ID', 'quoteId')}
         ${area('Seller public key', 'escrowSeller')}
@@ -262,11 +359,14 @@ function dexScreen(state) {
       </div>
       <div class="actions">
         <button data-action="openEscrow">Open Escrow</button>
-        <button class="secondary" data-action="verifyDex">Verify</button>
+        <button class="secondary" data-action="witnessEscrow">Witness</button>
         <button class="secondary" data-action="releaseEscrow">Release / Swap</button>
+        <button class="secondary" data-action="cancelEscrow">Cancel</button>
+        <button class="secondary" data-action="refundEscrow">Refund</button>
       </div>
+      <pre>${escapeHtml(JSON.stringify(escrow ? printableEscrow(escrow) : {}, null, 2))}</pre>
     </section>
-    ${eventPanel('DEX events', store.events.filter((event) => event.module === 'dex').slice(-12).reverse())}
+    ${eventPanel('DEX events', store.events.filter((event) => event.module === 'dex').slice(-10).reverse())}
   `;
 }
 
@@ -280,20 +380,397 @@ function syncScreen() {
         <button data-action="syncNode">Push / Pull Node</button>
         <button class="secondary" data-action="pullNode">Pull Only</button>
       </div>
-      <p class="small">For real phones, use a node URL the phone can reach, such as an HTTPS tunnel or a computer LAN IP.</p>
+      <p class="small">Use HTTPS or a reachable LAN/tunnel URL for real phones.</p>
     </section>
     <section class="panel">
-      <div class="panel-head"><h2>Nearby Exchange</h2><span class="pill ${bluetooth ? 'ok' : 'bad'}">Bluetooth API ${bluetooth ? 'visible' : 'missing'}</span></div>
+      <div class="panel-head"><h2>Import / Export</h2><span class="pill ${bluetooth ? 'ok' : 'bad'}">Bluetooth API ${bluetooth ? 'visible' : 'missing'}</span></div>
       <div class="actions">
-        <button data-action="exportBundle">Export Bundle File</button>
-        <button class="secondary" data-action="copyBundle">Copy Bundle Text</button>
+        <button data-action="exportBundle">Export Bundle</button>
+        <button class="secondary" data-action="copyBundle">Copy Bundle</button>
         <button class="secondary" data-action="checkBluetooth">Check Bluetooth</button>
       </div>
       ${area('Import bundle text', 'importText')}
-      <div class="actions"><button class="secondary" data-action="importBundle">Import Bundle Text</button></div>
-      <p class="small">Browser Bluetooth is BLE device access, not reliable phone-to-phone Aqua sync. For now, use file share, QR/text handoff, or network sync for field tests.</p>
+      <div class="actions"><button class="secondary" data-action="importBundle">Import Bundle</button></div>
+      <pre>${escapeHtml(JSON.stringify(store.importSummary || { accepted: 0, rejected: 0, reasons: [] }, null, 2))}</pre>
     </section>
   `;
+}
+
+function bind() {
+  document.querySelectorAll('[data-route]').forEach((el) => el.addEventListener('click', () => setRoute(el.dataset.route)));
+  document.querySelectorAll('[data-form]').forEach((el) => el.addEventListener('input', () => setForm(el.dataset.form, el.value)));
+  document.querySelectorAll('[data-action]').forEach((el) => el.addEventListener('click', () => actions[el.dataset.action]?.()));
+  document.getElementById('nodeUrl')?.addEventListener('change', (event) => {
+    store.nodeUrl = event.target.value.trim();
+    saveStore();
+  });
+}
+
+const actions = {
+  createAccount: () => run(async () => {
+    requireSecureCrypto();
+    const email = cleanEmail(store.forms.email);
+    const passphrase = store.forms.passphrase;
+    if (!email) throw new Error('Enter an email first.');
+    if (!passphrase || passphrase.length < 8) throw new Error('Use a passphrase of at least 8 characters.');
+    const keypair = await generateIdentityKeypair();
+    store.account = {
+      publicKey: keypair.publicKey,
+      encryptedPrivateKey: await encryptText(keypair.privateKey, passphrase),
+      email,
+      createdAt: Date.now()
+    };
+    await addLocalEvent(await signedEvent('identity.email_claim', {
+      emailHash: await hashLocal(email),
+      createdAt: Date.now()
+    }));
+    toast('Account started at LEVEL_0_EMAIL');
+  }),
+  copyPubkey: () => run(async () => {
+    requireAccount();
+    await navigator.clipboard.writeText(store.account.publicKey);
+    toast('Public key copied');
+  }),
+  completePohw: () => run(async () => {
+    requireAccount();
+    const email = cleanEmail(store.account.email || store.forms.email);
+    if (!email) throw new Error('Email is required for PoHW.');
+    if (store.forms.pohwPhrase !== POHW_PHRASE) throw new Error('Phrase does not match.');
+    if (!store.forms.pohwAnswer.trim()) throw new Error('Answer the simple prompt.');
+    await addLocalEvent(await signedEvent('identity.pohw_simple', {
+      emailHash: await hashLocal(email),
+      challengeText: POHW_PHRASE,
+      responseHash: await hashLocal(`${store.forms.pohwPhrase}|${store.forms.pohwAnswer.trim()}`),
+      completedAt: Date.now(),
+      score: 1,
+      method: 'simple-beta-pohw'
+    }));
+    toast('PoHW completed: LEVEL_1_POHW');
+  }),
+  applyBetaOverride: () => run(async () => {
+    requireAccount();
+    if (!isValidBetaOverride(store.forms.betaCode)) throw new Error('Invalid beta override code.');
+    await addLocalEvent(await signedEvent('identity.beta_override', {
+      codeHash: await hashLocal(BETA_OVERRIDE),
+      reason: 'beta testing only',
+      expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000
+    }));
+    store.forms.betaCode = '';
+    toast('BETA OVERRIDE ACTIVE');
+  }),
+  issueBetaAqua: () => run(async () => {
+    requireAccount();
+    await addLocalEvent(await signedEvent('money.issue_aqua', {
+      to: store.account.publicKey,
+      amount: amountFrom('issueAmount'),
+      betaDev: true
+    }));
+    toast('Beta Aqua issued');
+  }),
+  sendAqua: () => run(async () => {
+    requireAccount();
+    const amount = amountFrom('amount');
+    const fire = round(amount * 0.04);
+    await addLocalEvent(await signedEvent('money.transfer', {
+      from: store.account.publicKey,
+      to: store.forms.to.trim(),
+      amount,
+      netAmount: round(amount - fire),
+      fireAmount: fire,
+      fireTaxRate: 0.04
+    }));
+    toast('Transfer queued');
+  }),
+  createProposal: () => run(async () => {
+    const event = await signedEvent('governance.proposal_create', {
+      title: store.forms.proposalTitle.trim(),
+      body: store.forms.proposalBody.trim(),
+      choices: ['yes', 'no', 'abstain']
+    });
+    await addLocalEvent(event);
+    store.forms.proposalId = event.id;
+    toast('Proposal created');
+  }),
+  castVote: () => run(async () => {
+    await addLocalEvent(await signedEvent('governance.vote_cast', {
+      proposalId: store.forms.proposalId.trim(),
+      choice: store.forms.voteChoice
+    }));
+    toast('Vote queued');
+  }),
+  setProxy: () => run(async () => {
+    await addLocalEvent(await signedEvent('governance.proxy_set', { proxy: store.forms.proxy.trim() }));
+    toast('Proxy set');
+  }),
+  revokeProxy: () => run(async () => {
+    await addLocalEvent(await signedEvent('governance.proxy_revoke', { proxy: store.forms.proxy.trim() }));
+    toast('Proxy revoked');
+  }),
+  copyOutcome: () => run(async () => {
+    const outcome = tallyProposal(stateNow(), store.forms.proposalId.trim());
+    await navigator.clipboard.writeText(JSON.stringify(outcome, null, 2));
+    toast('Outcome copied');
+  }),
+  committeeOptIn: () => run(async () => {
+    await addLocalEvent(await signedEvent('governance.committee_opt_in', { optedInAt: Date.now() }));
+    toast('Committee opt-in queued');
+  }),
+  committeeOptOut: () => run(async () => {
+    await addLocalEvent(await signedEvent('governance.committee_opt_out', { optedOutAt: Date.now() }));
+    toast('Committee opt-out queued');
+  }),
+  committeeSelect: () => run(async () => {
+    const state = stateNow();
+    const eligible = [...state.governance.committeeOptIn].filter((userId) => isVerifiedIdentity(state, userId)).sort();
+    const priorEventHash = store.events.slice().sort(compareEvents).at(-1)?.id || 'genesis';
+    const count = Math.max(1, Number(store.forms.committeeCount) || 1);
+    await addLocalEvent(await signedEvent('governance.committee_select', {
+      roundId: store.forms.committeeRound.trim(),
+      priorEventHash,
+      count,
+      selected: deterministicCommittee(store.forms.committeeRound.trim(), priorEventHash, eligible, count)
+    }));
+    toast('Committee selected');
+  }),
+  createRoom: () => run(async () => {
+    await addLocalEvent(await signedEvent('chat.room_create', {
+      roomId: store.forms.chatRoom.trim(),
+      name: store.forms.chatRoomName.trim(),
+      todoEncryption: 'TODO: add room encryption after beta protocol rules settle'
+    }));
+    toast('Room created');
+  }),
+  joinRoom: () => run(async () => {
+    await addLocalEvent(await signedEvent('chat.room_join', { roomId: store.forms.chatRoom.trim(), joinedAt: Date.now() }));
+    toast('Room joined');
+  }),
+  sendChat: () => run(async () => {
+    await addLocalEvent(await signedEvent('chat.message_send', {
+      roomId: store.forms.chatRoom.trim(),
+      text: store.forms.chatText.trim(),
+      todoEncryption: 'TODO: encrypt messages after beta sync testing'
+    }));
+    store.forms.chatText = '';
+    toast('Message sent');
+  }),
+  issueRoomCredit: () => run(async () => {
+    await addLocalEvent(await signedEvent('chat.room_credit_issue', {
+      roomId: store.forms.chatRoom.trim(),
+      to: store.forms.roomCreditTo.trim(),
+      amount: amountFrom('roomCreditAmount'),
+      betaDev: true
+    }));
+    toast('Room credit issued');
+  }),
+  sendRoomCredit: () => run(async () => {
+    await addLocalEvent(await signedEvent('chat.room_credit_transfer', {
+      roomId: store.forms.chatRoom.trim(),
+      to: store.forms.roomCreditTo.trim(),
+      amount: amountFrom('roomCreditAmount')
+    }));
+    toast('Room credit transferred');
+  }),
+  createQuote: () => run(async () => {
+    const event = await signedEvent('dex.quote_create', {
+      side: store.forms.quoteSide,
+      base: 'AQUA',
+      quote: 'LOCAL',
+      amount: amountFrom('quoteAmount'),
+      price: Number(store.forms.quotePrice),
+      expiresAt: Date.now() + 60 * 60 * 1000,
+      binding: false
+    });
+    await addLocalEvent(event);
+    store.forms.quoteId = event.id;
+    toast('Quote listed');
+  }),
+  openEscrow: () => run(async () => {
+    requireAccount();
+    const event = await signedEvent('dex.escrow_open', {
+      quoteId: store.forms.quoteId.trim() || undefined,
+      buyer: store.account.publicKey,
+      seller: store.forms.escrowSeller.trim(),
+      lockedFrom: store.account.publicKey,
+      amount: amountFrom('escrowAmount'),
+      witnessThreshold: WITNESS_THRESHOLD,
+      timeoutAt: Date.now() + 60 * 60 * 1000
+    });
+    await addLocalEvent(event);
+    store.forms.escrowId = event.id;
+    toast('Escrow opened');
+  }),
+  witnessEscrow: () => run(async () => {
+    await addLocalEvent(await signedEvent('dex.witness_attest', {
+      escrowId: store.forms.escrowId.trim(),
+      statement: 'off-chain condition observed',
+      attestedAt: Date.now()
+    }));
+    toast('Witness attested');
+  }),
+  releaseEscrow: () => run(async () => {
+    const escrow = stateNow().dex.escrows.get(store.forms.escrowId.trim());
+    await addLocalEvent(await signedEvent('dex.escrow_release', {
+      escrowId: store.forms.escrowId.trim(),
+      buyer: escrow?.buyer || store.forms.escrowBuyer.trim(),
+      seller: escrow?.seller || store.forms.escrowSeller.trim(),
+      amount: escrow?.amount || amountFrom('escrowAmount'),
+      releaseTo: store.forms.escrowSeller.trim() || store.account?.publicKey
+    }));
+    toast('Escrow released');
+  }),
+  cancelEscrow: () => run(async () => {
+    await addLocalEvent(await signedEvent('dex.escrow_cancel', { escrowId: store.forms.escrowId.trim(), cancelledAt: Date.now() }));
+    toast('Cancel queued');
+  }),
+  refundEscrow: () => run(async () => {
+    const escrow = stateNow().dex.escrows.get(store.forms.escrowId.trim());
+    await addLocalEvent(await signedEvent('dex.escrow_refund', {
+      escrowId: store.forms.escrowId.trim(),
+      buyer: escrow?.buyer || store.forms.escrowBuyer.trim(),
+      amount: escrow?.amount || amountFrom('escrowAmount'),
+      refundedAt: Date.now()
+    }));
+    toast('Refund queued');
+  }),
+  syncNode: () => run(syncNode),
+  pullNode: () => run(pullNode),
+  exportBundle: () => run(exportBundleFile),
+  copyBundle: () => run(async () => {
+    await navigator.clipboard.writeText(JSON.stringify(bundle(), null, 2));
+    toast('Bundle copied');
+  }),
+  importBundle: () => run(async () => {
+    await importEvents(JSON.parse(store.forms.importText), { markPending: false });
+    toast(`Import accepted ${store.importSummary.accepted}, rejected ${store.importSummary.rejected}`);
+  }),
+  checkBluetooth: () => run(async () => {
+    if (!('bluetooth' in navigator)) throw new Error('Web Bluetooth is not available in this browser.');
+    const available = await navigator.bluetooth.getAvailability();
+    toast(`Bluetooth API available: ${available}`);
+  })
+};
+
+async function addLocalEvent(event) {
+  const accepted = await validateAndApply([event], { markPending: true });
+  if (accepted.accepted !== 1) throw new Error(accepted.reasons[0]?.reason || 'event-rejected');
+}
+
+async function validateAndApply(events, options = {}) {
+  const summary = { accepted: 0, rejected: 0, reasons: [] };
+  const known = new Set(store.events.map((event) => event.id));
+  let state = stateNow();
+  for (const incoming of events.map(normalizeEvent).sort(compareEvents)) {
+    if (known.has(incoming.id)) continue;
+    const check = await validateEvent(incoming, state);
+    if (!check.ok) {
+      summary.rejected += 1;
+      summary.reasons.push({ id: incoming.id || short(incoming.type), type: incoming.type, reason: check.reason });
+      continue;
+    }
+    store.events.push(incoming);
+    known.add(incoming.id);
+    applyEvent(incoming, state);
+    if (options.markPending && !store.pending.includes(incoming.id)) store.pending.push(incoming.id);
+    summary.accepted += 1;
+  }
+  store.events.sort(compareEvents);
+  store.importSummary = summary;
+  saveStore();
+  return summary;
+}
+
+async function signedEvent(type, payload = {}) {
+  requireAccount();
+  const privateKey = await unlockPrivateKey();
+  return signEvent(createEvent(type, payload, store.account.publicKey, recentParentIds()), privateKey);
+}
+
+async function syncNode() {
+  if (!store.nodeUrl) throw new Error('Set a node URL first.');
+  for (const id of [...store.pending]) {
+    const event = store.events.find((item) => item.id === id);
+    if (!event) continue;
+    const res = await fetch(`${store.nodeUrl}/event`, postBody(event));
+    if (res.ok) store.pending = store.pending.filter((item) => item !== id);
+    else throw new Error(await res.text());
+  }
+  await pullNode();
+  store.lastSync = new Date().toISOString();
+  toast('Synced');
+}
+
+async function pullNode() {
+  const res = await fetch(`${store.nodeUrl}/events`);
+  if (!res.ok) throw new Error(await res.text());
+  await importEvents(await res.json(), { markPending: false });
+  store.lastSync = new Date().toISOString();
+  saveStore();
+}
+
+async function importEvents(input, options = {}) {
+  const events = Array.isArray(input) ? input : input?.events;
+  if (!Array.isArray(events)) throw new Error('Invalid bundle.');
+  return validateAndApply(events, options);
+}
+
+function bundle() {
+  return { app: 'aqua-field-kit', version: '0.1.0-beta', exportedAt: new Date().toISOString(), events: store.events };
+}
+
+function exportBundleFile() {
+  const blob = new Blob([JSON.stringify(bundle(), null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `aqua-field-${new Date().toISOString().slice(0, 10)}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function recentParentIds() {
+  return store.events.slice().sort(compareEvents).slice(-2).map((event) => event.id);
+}
+
+function postBody(body) {
+  return { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) };
+}
+
+function currentIdentity(state) {
+  return store.account ? getIdentity(state, store.account.publicKey) : {};
+}
+
+function currentBalance(state) {
+  const key = store.account?.publicKey || '';
+  return {
+    aqua: round(getAquaBalance(state, key)),
+    locked: round(state.money.locked.get(key) || 0),
+    firePaid: round(state.money.firePaid.get(key) || 0),
+    sump: round(state.money.sump),
+    earth: round(state.money.earth)
+  };
+}
+
+function publicAccount(identity) {
+  if (!store.account) return {};
+  return {
+    publicKey: store.account.publicKey,
+    emailLocalOnly: store.account.email || undefined,
+    level: identityLabel(identity),
+    betaOverrideActive: !!identity.betaOverrideActive,
+    createdAt: store.account.createdAt
+  };
+}
+
+function identityLabel(identity) {
+  if (!store.account) return 'No account';
+  if (identity?.betaOverrideActive) return 'BETA OVERRIDE ACTIVE';
+  return identity?.level || 'LEVEL_0_EMAIL';
+}
+
+function identityBadge(identity) {
+  const label = identityLabel(identity);
+  const tone = identity?.betaOverrideActive ? 'warn' : identity?.isVerified ? 'ok' : 'bad';
+  return `<span class="pill ${tone}">${escapeHtml(label)}</span>`;
 }
 
 function metric(label, value, tone = '') {
@@ -327,551 +804,45 @@ function eventList(events) {
   `).join('')}</div>`;
 }
 
-function bind() {
-  document.querySelectorAll('[data-route]').forEach((el) => el.addEventListener('click', () => setRoute(el.dataset.route)));
-  document.querySelectorAll('[data-form]').forEach((el) => el.addEventListener('input', () => setForm(el.dataset.form, el.value)));
-  document.querySelectorAll('[data-action]').forEach((el) => el.addEventListener('click', () => actions[el.dataset.action]?.()));
-  document.getElementById('nodeUrl')?.addEventListener('change', (event) => {
-    store.nodeUrl = event.target.value.trim();
-    saveStore();
-  });
+function messagePanel(events) {
+  return `<section class="panel"><div class="panel-head"><h2>Messages</h2><span class="pill">${events.length}</span></div>${events.length ? events.slice(-8).map((event) => `<article class="event"><strong>${escapeHtml(short(event.author))}</strong><span>${escapeHtml(event.payload.text)}</span></article>`).join('') : '<p class="small">No messages yet.</p>'}</section>`;
 }
 
-const actions = {
-  createAccount: () => run(async () => {
-    requireSecureCrypto();
-    const passphrase = store.forms.passphrase;
-    if (!passphrase || passphrase.length < 8) throw new Error('Use a passphrase of at least 8 characters.');
-    const keypair = await generateIdentityKeypair();
-    store.account = {
-      publicKey: keypair.publicKey,
-      encryptedPrivateKey: await encryptText(keypair.privateKey, passphrase),
-      name: store.forms.name || 'field-human',
-      createdAt: Date.now()
-    };
-    await addLocalEvent(await createEvent('identity', 'identity.claim', { name: store.account.name, privacy: 'no private personal data on ledger' }));
-    await addLocalEvent(await createEvent('identity', 'identity.pohw_attest', { subject: store.account.publicKey, status: 'locally_verified', method: 'field-local-attestation', biometricData: false }));
-    toast('Account created');
-  }),
-  copyPubkey: () => run(async () => {
-    if (!store.account) throw new Error('Create an account first.');
-    await navigator.clipboard.writeText(store.account.publicKey);
-    toast('Public key copied');
-  }),
-  claimAqua: () => run(async () => {
-    await syncNode();
-    if (!store.account) throw new Error('Create an account first.');
-    const res = await fetch(`${store.nodeUrl}/money/issue-weekly`, postBody({ pubkey: store.account.publicKey }));
-    if (!res.ok) throw new Error(await res.text());
-    await pullNode();
-    toast('Weekly Aqua requested');
-  }),
-  sendAqua: () => run(async () => {
-    await addLocalEvent(await createEvent('money', 'money.transfer', transferPayload(store.forms.to.trim(), Number(store.forms.amount))));
-    toast('Transfer queued');
-  }),
-  createProposal: () => run(async () => {
-    const event = await createEvent('governance', 'governance.proposal_create', { title: store.forms.proposalTitle, body: store.forms.proposalBody, choices: ['yes', 'no', 'abstain'] });
-    await addLocalEvent(event);
-    store.forms.proposalId = event.id;
-    toast('Proposal created');
-  }),
-  castVote: () => run(async () => {
-    await addLocalEvent(await createEvent('governance', 'governance.vote_cast', { proposalId: store.forms.proposalId.trim(), choice: store.forms.voteChoice }));
-    toast('Vote queued');
-  }),
-  setProxy: () => run(async () => {
-    await addLocalEvent(await createEvent('governance', 'governance.proxy_set', { proxy: store.forms.proxy.trim() }));
-    toast('Proxy queued');
-  }),
-  publishOutcome: () => run(async () => {
-    const tally = tallyProposal(store.events, store.forms.proposalId.trim());
-    await addLocalEvent(await createEvent('governance', 'governance.outcome_publish', { proposalId: store.forms.proposalId.trim(), tally: tally.tally, note: 'Published from Aqua Field.' }));
-    toast('Outcome queued');
-  }),
-  createRoom: () => run(async () => {
-    await addLocalEvent(await createEvent('chat', 'chat.room_create', { roomId: store.forms.chatRoom.trim(), name: store.forms.chatRoomName.trim(), topic: 'Field room' }));
-    toast('Room queued');
-  }),
-  sendChat: () => run(async () => {
-    await addLocalEvent(await createEvent('chat', 'chat.message_create', { roomId: store.forms.chatRoom.trim(), text: store.forms.chatText.trim() }));
-    toast('Message queued');
-  }),
-  createQuote: () => run(async () => {
-    const event = await createEvent('dex', 'dex.quote_create', { side: store.forms.quoteSide, base: 'AQUA', quote: 'LOCAL', amount: Number(store.forms.quoteAmount), price: Number(store.forms.quotePrice), expiresAt: Date.now() + 3600_000, binding: false, note: 'signed speech until escrow opens' });
-    await addLocalEvent(event);
-    store.forms.quoteId = event.id;
-    toast('Quote queued');
-  }),
-  openEscrow: () => run(async () => {
-    const payload = { buyer: store.account?.publicKey, seller: store.forms.escrowSeller.trim(), amount: Number(store.forms.escrowAmount), quoteId: store.forms.quoteId.trim() || undefined };
-    const event = await createEvent('dex', 'dex.escrow_open', payload);
-    await addLocalEvent(event);
-    store.forms.escrowId = event.id;
-    toast('Escrow queued');
-  }),
-  verifyDex: () => run(async () => {
-    await addLocalEvent(await createEvent('dex', 'dex.witness_attest', { subjectEventId: store.forms.escrowId.trim() || store.forms.quoteId.trim(), statement: 'off-chain condition observed', bondedIdentity: store.account?.publicKey, stub: true }));
-    toast('Witness queued');
-  }),
-  releaseEscrow: () => run(async () => {
-    await addLocalEvent(await createEvent('dex', 'dex.escrow_release', { escrowId: store.forms.escrowId.trim(), buyer: store.forms.escrowBuyer.trim(), seller: store.account?.publicKey, amount: Number(store.forms.escrowAmount) }));
-    toast('Release queued');
-  }),
-  syncNode: () => run(syncNode),
-  pullNode: () => run(pullNode),
-  exportBundle: () => run(exportBundleFile),
-  copyBundle: () => run(async () => {
-    await navigator.clipboard.writeText(JSON.stringify(bundle(), null, 2));
-    toast('Bundle copied');
-  }),
-  importBundle: () => run(async () => {
-    await importEvents(JSON.parse(store.forms.importText));
-    toast('Bundle imported');
-  }),
-  checkBluetooth: () => run(async () => {
-    if (!('bluetooth' in navigator)) throw new Error('Web Bluetooth is not available in this browser.');
-    const available = await navigator.bluetooth.getAvailability();
-    toast(`Bluetooth API available: ${available}`);
-  })
-};
-
-async function addLocalEvent(event) {
-  await assertValidEvent(event, store.events);
-  if (!store.events.some((item) => item.id === event.id)) store.events.push(event);
-  if (!store.pending.includes(event.id)) store.pending.push(event.id);
-  saveStore();
+function printableEscrow(escrow) {
+  return { ...escrow, witnesses: [...(escrow.witnesses || [])] };
 }
 
-async function syncNode() {
-  if (!store.nodeUrl) throw new Error('Set a node URL first.');
-  for (const id of [...store.pending]) {
-    const event = store.events.find((item) => item.id === id);
-    if (!event) continue;
-    const res = await fetch(`${store.nodeUrl}/event`, postBody(event));
-    if (res.ok) store.pending = store.pending.filter((item) => item !== id);
-    else throw new Error(await res.text());
-  }
-  await pullNode();
-  store.lastSync = new Date().toISOString();
-  toast('Synced');
+function amountFrom(key) {
+  const value = Number(store.forms[key]);
+  if (!Number.isFinite(value) || value <= 0) throw new Error('Enter a positive amount.');
+  return round(value);
 }
 
-async function pullNode() {
-  const res = await fetch(`${store.nodeUrl}/events`);
-  if (!res.ok) throw new Error(await res.text());
-  await importEvents(await res.json(), false);
-  store.lastSync = new Date().toISOString();
-  saveStore();
+function cleanEmail(value) {
+  return String(value || '').trim().toLowerCase();
 }
 
-async function importEvents(input, markPending = false) {
-  const events = Array.isArray(input) ? input : input.events;
-  if (!Array.isArray(events)) throw new Error('Invalid bundle.');
-  const accepted = [...store.events].sort(compareEvents);
-  for (const event of events.slice().sort(compareEvents)) {
-    if (!store.events.some((item) => item.id === event.id)) {
-      await assertValidEvent(event, accepted);
-      store.events.push(event);
-      accepted.push(event);
-      accepted.sort(compareEvents);
-      if (markPending) store.pending.push(event.id);
-    }
-  }
-  store.events.sort(compareEvents);
-  saveStore();
+async function hashLocal(value) {
+  return sha256Hex(textBytes(value));
 }
 
-function bundle() {
-  return { protocol: BASE_PROTOCOL, exportedAt: Date.now(), events: store.events };
+// TEMPORARY BETA ONLY - REMOVE BEFORE PRODUCTION
+function isValidBetaOverride(input) {
+  return String(input || '') === BETA_OVERRIDE;
 }
 
-function exportBundleFile() {
-  const blob = new Blob([JSON.stringify(bundle(), null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `aqua-field-${Date.now()}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+function requireAccount() {
+  if (!store.account?.publicKey) throw new Error('Create an account first.');
 }
 
-function postBody(body) {
-  return { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) };
-}
-
-async function assertValidEvent(event, currentEvents) {
-  const check = await validateEvent(event, currentEvents);
-  if (!check.ok) throw new Error(`Rejected event ${short(event?.id || 'unknown')}: ${check.reason}`);
-}
-
-async function validateEvent(event, currentEvents) {
-  if (!event || typeof event !== 'object') return fail('event-not-object');
-  if (event.protocol !== BASE_PROTOCOL) return fail('unsupported-protocol');
-  if (!['system', 'identity', 'money', 'governance', 'dex', 'chat'].includes(event.module)) return fail('unknown-module');
-  if (event.moduleVersion !== MODULE_VERSION) return fail('unsupported-module-version');
-  if (typeof event.type !== 'string' || !event.type) return fail('event-type-required');
-  if (!Number.isFinite(event.createdAt)) return fail('invalid-created-at');
-  if (typeof event.author !== 'string' || !event.author) return fail('event-author-required');
-  if (!Array.isArray(event.parents) || event.parents.length > 2) return fail('invalid-parents');
-  if (!event.parents.every((parent) => typeof parent === 'string')) return fail('invalid-parent-id');
-  if (!event.parents.every((parent) => currentEvents.some((item) => item.id === parent))) return fail('unknown-parent');
-  if (!event.payload || typeof event.payload !== 'object' || Array.isArray(event.payload)) return fail('invalid-payload');
-  if (event.id !== await eventIdFor(event)) return fail('event-id-mismatch');
-  if (!await verifyEventSignature(event)) return fail('invalid-signature');
-  return validateModuleEvent(event, currentEvents);
-}
-
-async function eventIdFor(event) {
-  return sha256Hex(canonicalJson(eventSigningBody(event)));
-}
-
-async function verifyEventSignature(event) {
-  try {
-    const publicKey = await crypto.subtle.importKey('spki', base64ToArrayBuffer(event.author), { name: 'Ed25519' }, false, ['verify']);
-    return crypto.subtle.verify({ name: 'Ed25519' }, publicKey, base64ToArrayBuffer(event.signature), textBytes(canonicalJson(eventSigningBody(event))));
-  } catch {
-    return false;
-  }
-}
-
-function eventSigningBody(event) {
-  return {
-    protocol: event.protocol ?? BASE_PROTOCOL,
-    module: event.module ?? 'system',
-    moduleVersion: event.moduleVersion ?? MODULE_VERSION,
-    type: event.type ?? 'system.unknown',
-    createdAt: event.createdAt ?? Date.now(),
-    author: event.author ?? '',
-    parents: event.parents ?? [],
-    payload: event.payload ?? {}
-  };
-}
-
-function validateModuleEvent(event, currentEvents) {
-  if (event.module === 'identity') return validateIdentityEvent(event);
-  if (event.module === 'money') return validateMoneyEvent(event, currentEvents);
-  if (event.module === 'governance') return validateGovernanceEvent(event, currentEvents);
-  if (event.module === 'chat') return validateChatEvent(event, currentEvents);
-  if (event.module === 'dex') return validateDexEvent(event, currentEvents);
-  return { ok: true };
-}
-
-function validateIdentityEvent(event) {
-  if (event.type === 'identity.claim') {
-    if (typeof event.payload.name !== 'string' || !event.payload.name.trim()) return fail('identity-name-required');
-    return { ok: true };
-  }
-  if (event.type === 'identity.pohw_attest') {
-    if (typeof event.payload.subject !== 'string' || !event.payload.subject) return fail('pohw-subject-required');
-    if (!['unverified', 'locally_verified', 'vouched', 'challenged', 'archived'].includes(event.payload.status)) return fail('invalid-pohw-status');
-    return { ok: true };
-  }
-  return fail('identity-type-not-allowed');
-}
-
-function validateMoneyEvent(event, currentEvents) {
-  const ids = identityState(currentEvents).verified;
-  if (event.type === 'money.genesis') {
-    if (!positive(event.payload.earthTotal)) return fail('invalid-earth-total');
-    if (currentEvents.some((item) => item.type === 'money.genesis')) return fail('duplicate-genesis');
-    return { ok: true };
-  }
-  if (event.type === 'money.issue_aqua') {
-    if (!positive(event.payload.amount)) return fail('invalid-issue-amount');
-    if (!ids.includes(event.payload.to)) return fail('issue-recipient-not-verified');
-    return { ok: true };
-  }
-  if (event.type === 'money.transfer') {
-    if (event.payload.from && event.payload.from !== event.author) return fail('transfer-from-author-mismatch');
-    if (typeof event.payload.to !== 'string' || !event.payload.to) return fail('transfer-recipient-required');
-    if (!positive(event.payload.amount)) return fail('invalid-transfer-amount');
-    const fire = round(event.payload.amount * 0.04);
-    if (round(event.payload.fireAmount) !== fire) return fail('invalid-fire-amount');
-    if (round(event.payload.netAmount) !== round(event.payload.amount - fire)) return fail('invalid-net-amount');
-    if (!canSpend(currentEvents, event.author, event.payload.amount)) return fail('insufficient-balance');
-    return { ok: true };
-  }
-  return fail('money-type-not-allowed');
-}
-
-function validateGovernanceEvent(event, currentEvents) {
-  const ids = identityState(currentEvents).verified;
-  const gov = governanceState(currentEvents);
-  if (event.type === 'governance.proposal_create') {
-    if (!ids.includes(event.author)) return fail('proposal-author-not-verified');
-    if (typeof event.payload.title !== 'string' || !event.payload.title.trim()) return fail('proposal-title-required');
-    if (!Array.isArray(event.payload.choices) || event.payload.choices.length < 2) return fail('proposal-choices-required');
-    return { ok: true };
-  }
-  if (event.type === 'governance.vote_cast') {
-    const proposal = gov.proposals.get(event.payload.proposalId);
-    if (!ids.includes(event.author)) return fail('vote-author-not-verified');
-    if (!proposal) return fail('proposal-not-found');
-    if (!proposal.payload.choices.includes(event.payload.choice)) return fail('invalid-vote-choice');
-    return { ok: true };
-  }
-  if (event.type === 'governance.proxy_set') {
-    if (!ids.includes(event.author)) return fail('proxy-author-not-verified');
-    if (!ids.includes(event.payload.proxy)) return fail('proxy-target-not-verified');
-    if (event.payload.proxy === event.author) return fail('self-proxy-not-allowed');
-    return { ok: true };
-  }
-  if (event.type === 'governance.outcome_publish') {
-    if (!ids.includes(event.author)) return fail('outcome-author-not-verified');
-    if (!gov.proposals.has(event.payload.proposalId)) return fail('proposal-not-found');
-    if (!event.payload.tally || typeof event.payload.tally !== 'object') return fail('outcome-tally-required');
-    return { ok: true };
-  }
-  return fail('governance-type-not-allowed');
-}
-
-function validateChatEvent(event, currentEvents) {
-  const ids = identityState(currentEvents).verified;
-  const chat = chatState(currentEvents);
-  if (!ids.includes(event.author)) return fail('chat-author-not-verified');
-  if (event.type === 'chat.room_create') {
-    if (typeof event.payload.roomId !== 'string' || !/^[a-z0-9][a-z0-9-]{1,48}$/i.test(event.payload.roomId)) return fail('invalid-room-id');
-    if (chat.rooms.has(event.payload.roomId)) return fail('room-already-exists');
-    return { ok: true };
-  }
-  if (event.type === 'chat.message_create') {
-    if (!chat.rooms.has(event.payload.roomId)) return fail('room-not-found');
-    if (typeof event.payload.text !== 'string' || !event.payload.text.trim()) return fail('chat-message-required');
-    return { ok: true };
-  }
-  return fail('chat-type-not-allowed');
-}
-
-function validateDexEvent(event, currentEvents) {
-  const dex = dexState(currentEvents);
-  if (event.type === 'dex.quote_create') {
-    if (!['buy', 'sell'].includes(event.payload.side)) return fail('invalid-quote-side');
-    if (!positive(event.payload.amount) || !positive(event.payload.price)) return fail('invalid-quote');
-    if (!Number.isFinite(event.payload.expiresAt) || event.payload.expiresAt <= event.createdAt) return fail('quote-expired-at-create');
-    return { ok: true };
-  }
-  if (event.type === 'dex.escrow_open') {
-    if (event.payload.buyer !== event.author) return fail('escrow-buyer-author-mismatch');
-    if (typeof event.payload.seller !== 'string' || !event.payload.seller) return fail('escrow-seller-required');
-    if (!positive(event.payload.amount)) return fail('invalid-escrow-amount');
-    if (event.payload.quoteId && !dex.quotes.some((quote) => quote.id === event.payload.quoteId)) return fail('quote-not-active');
-    if (!canSpend(currentEvents, event.author, event.payload.amount)) return fail('insufficient-balance');
-    return { ok: true };
-  }
-  if (event.type === 'dex.witness_attest') {
-    if (typeof event.payload.subjectEventId !== 'string' || !event.payload.subjectEventId) return fail('witness-subject-required');
-    return { ok: true };
-  }
-  if (event.type === 'dex.escrow_release' || event.type === 'dex.escrow_refund') {
-    const escrow = dex.escrows.get(event.payload.escrowId);
-    if (!escrow) return fail('escrow-not-found');
-    if (escrow.status !== 'open') return fail('escrow-already-settled');
-    if (escrow.buyer !== event.payload.buyer) return fail('escrow-buyer-mismatch');
-    if (event.payload.amount !== escrow.amount) return fail('escrow-amount-mismatch');
-    if (event.type === 'dex.escrow_release') {
-      if (event.author !== escrow.seller) return fail('escrow-release-author-not-seller');
-      if (event.payload.seller !== escrow.seller) return fail('escrow-seller-mismatch');
-    }
-    return { ok: true };
-  }
-  return fail('dex-type-not-allowed');
-}
-
-function canSpend(events, pubkey, amount) {
-  return (moneyState(events).aqua.get(pubkey) || 0) >= amount;
-}
-
-function positive(value) {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0;
-}
-
-function fail(reason) {
-  return { ok: false, reason };
-}
-
-async function generateIdentityKeypair() {
-  const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
-  const publicKey = arrayBufferToBase64(await crypto.subtle.exportKey('spki', pair.publicKey));
-  const privateKey = arrayBufferToBase64(await crypto.subtle.exportKey('pkcs8', pair.privateKey));
-  return { publicKey, privateKey };
-}
-
-async function createEvent(module, type, payload = {}) {
-  if (!store.account) throw new Error('Create an account first.');
-  const body = signingBody({ module, type, author: store.account.publicKey, parents: recentParentIds(), payload });
-  const text = canonicalJson(body);
-  const privateKeyBase64 = await unlockPrivateKey();
-  const privateKey = await crypto.subtle.importKey('pkcs8', base64ToArrayBuffer(privateKeyBase64), { name: 'Ed25519' }, false, ['sign']);
-  return { ...body, id: await sha256Hex(text), signature: arrayBufferToBase64(await crypto.subtle.sign({ name: 'Ed25519' }, privateKey, textBytes(text))) };
+function requireSecureCrypto() {
+  if (!crypto?.subtle) throw new Error('Web Crypto is unavailable. Serve this app over HTTPS or localhost.');
 }
 
 async function unlockPrivateKey() {
+  requireAccount();
   if (!store.forms.passphrase) throw new Error('Enter your passphrase to sign.');
-  if (!store.account?.encryptedPrivateKey) throw new Error('Missing encrypted private key.');
   return decryptText(store.account.encryptedPrivateKey, store.forms.passphrase);
-}
-
-function signingBody(event) {
-  return {
-    protocol: event.protocol || BASE_PROTOCOL,
-    module: event.module || 'system',
-    moduleVersion: event.moduleVersion || MODULE_VERSION,
-    type: event.type || 'system.unknown',
-    createdAt: event.createdAt || Date.now(),
-    author: event.author || '',
-    parents: event.parents || [],
-    payload: event.payload || {}
-  };
-}
-
-function recentParentIds() {
-  return store.events.slice().sort(compareEvents).slice(-2).map((event) => event.id);
-}
-
-function transferPayload(to, amount) {
-  const fire = round(amount * 0.04);
-  return { from: store.account?.publicKey, to, amount, netAmount: round(amount - fire), fireAmount: fire, fireTaxRate: 0.04 };
-}
-
-function deriveState(events) {
-  const state = { identity: identityState(events), money: moneyState(events), governance: governanceState(events), chat: chatState(events), dex: dexState(events) };
-  return state;
-}
-
-function identityState(events) {
-  const pohw = new Map();
-  const claims = new Map();
-  for (const event of events) {
-    if (event.module !== 'identity') continue;
-    if (event.type === 'identity.claim') {
-      claims.set(event.author, event);
-      if (!pohw.has(event.author)) pohw.set(event.author, 'unverified');
-    }
-    if (event.type === 'identity.pohw_attest') pohw.set(event.payload.subject || event.author, event.payload.status);
-  }
-  const verified = [...pohw.entries()].filter(([, status]) => status === 'locally_verified' || status === 'vouched').map(([pubkey]) => pubkey).sort();
-  return { claims, pohw, verified };
-}
-
-function moneyState(events) {
-  const aqua = new Map();
-  const locked = new Map();
-  const firePaid = new Map();
-  let sump = 0;
-  let earthReserve = 0;
-  for (const event of events.slice().sort(compareEvents)) {
-    if (event.type === 'money.genesis') earthReserve = event.payload.earthTotal;
-    if (event.type === 'money.issue_aqua') add(aqua, event.payload.to, event.payload.amount);
-    if (event.type === 'money.transfer') {
-      add(aqua, event.author, -event.payload.amount);
-      add(aqua, event.payload.to, event.payload.netAmount);
-      add(firePaid, event.author, event.payload.fireAmount);
-      sump = round(sump + event.payload.fireAmount);
-    }
-    if (event.type === 'dex.escrow_open') {
-      add(aqua, event.payload.buyer, -event.payload.amount);
-      add(locked, event.payload.buyer, event.payload.amount);
-    }
-    if (event.type === 'dex.escrow_release') {
-      add(locked, event.payload.buyer, -event.payload.amount);
-      add(aqua, event.payload.seller, event.payload.amount);
-    }
-    if (event.type === 'dex.escrow_refund') {
-      add(locked, event.payload.buyer, -event.payload.amount);
-      add(aqua, event.payload.buyer, event.payload.amount);
-    }
-  }
-  return { aqua, locked, firePaid, sump, earthReserve };
-}
-
-function governanceState(events) {
-  const proposals = new Map();
-  const votes = new Map();
-  const proxies = new Map();
-  for (const event of events) {
-    if (event.module !== 'governance') continue;
-    if (event.type === 'governance.proposal_create') proposals.set(event.id, event);
-    if (event.type === 'governance.vote_cast') {
-      if (!votes.has(event.payload.proposalId)) votes.set(event.payload.proposalId, new Map());
-      votes.get(event.payload.proposalId).set(event.author, event);
-    }
-    if (event.type === 'governance.proxy_set') proxies.set(event.author, event.payload.proxy);
-    if (event.type === 'governance.proxy_revoke') proxies.delete(event.author);
-  }
-  return { proposals, votes, proxies };
-}
-
-function tallyProposal(events, proposalId) {
-  const ids = identityState(events).verified;
-  const gov = governanceState(events);
-  const directVotes = gov.votes.get(proposalId) || new Map();
-  const tally = {};
-  const counted = {};
-  for (const voter of ids) {
-    const direct = directVotes.get(voter);
-    if (direct) {
-      tally[direct.payload.choice] = (tally[direct.payload.choice] || 0) + 1;
-      counted[voter] = `direct:${direct.payload.choice}`;
-      continue;
-    }
-    const proxy = gov.proxies.get(voter);
-    const proxyVote = proxy ? directVotes.get(proxy) : undefined;
-    if (proxyVote) {
-      tally[proxyVote.payload.choice] = (tally[proxyVote.payload.choice] || 0) + 1;
-      counted[voter] = `proxy:${proxy}:${proxyVote.payload.choice}`;
-    }
-  }
-  return { proposalId, tally, counted, verifiedHumans: ids.length };
-}
-
-function chatState(events) {
-  const rooms = new Map();
-  const messages = new Map();
-  for (const event of events) {
-    if (event.module !== 'chat') continue;
-    if (event.type === 'chat.room_create') {
-      rooms.set(event.payload.roomId, event);
-      if (!messages.has(event.payload.roomId)) messages.set(event.payload.roomId, []);
-    }
-    if (event.type === 'chat.message_create') {
-      if (!messages.has(event.payload.roomId)) messages.set(event.payload.roomId, []);
-      messages.get(event.payload.roomId).push(event);
-    }
-  }
-  return { rooms, messages };
-}
-
-function dexState(events) {
-  const quotes = [];
-  const cancelled = new Set();
-  const escrows = new Map();
-  const witnesses = [];
-  for (const event of events) {
-    if (event.type === 'dex.quote_cancel') cancelled.add(event.payload.quoteId);
-    if (event.type === 'dex.quote_create' && event.payload.expiresAt > Date.now()) quotes.push(event);
-    if (event.type === 'dex.escrow_open') escrows.set(event.id, { ...event.payload, id: event.id, status: 'open' });
-    if (event.type === 'dex.escrow_release') escrows.get(event.payload.escrowId) && (escrows.get(event.payload.escrowId).status = 'released');
-    if (event.type === 'dex.escrow_refund') escrows.get(event.payload.escrowId) && (escrows.get(event.payload.escrowId).status = 'refunded');
-    if (event.type === 'dex.witness_attest') witnesses.push(event);
-  }
-  return { quotes: quotes.filter((quote) => !cancelled.has(quote.id)), escrows, witnesses };
-}
-
-function currentBalance(state) {
-  const key = store.account?.publicKey || '';
-  return {
-    aqua: round(state.money.aqua.get(key) || 0),
-    locked: round(state.money.locked.get(key) || 0),
-    firePaid: round(state.money.firePaid.get(key) || 0),
-    sump: round(state.money.sump),
-    earthReserve: round(state.money.earthReserve)
-  };
-}
-
-function publicAccount() {
-  if (!store.account) return {};
-  return { publicKey: store.account.publicKey, name: store.account.name, createdAt: store.account.createdAt };
 }
 
 async function encryptText(text, passphrase) {
@@ -895,42 +866,6 @@ async function passphraseKey(passphrase, salt) {
   return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 210_000, hash: 'SHA-256' }, baseKey, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 }
 
-function add(map, key, amount) {
-  map.set(key, round((map.get(key) || 0) + amount));
-}
-
-function round(value) {
-  return Math.round(Number(value || 0) * 1_000_000) / 1_000_000;
-}
-
-function compareEvents(a, b) {
-  return a.createdAt - b.createdAt || a.id.localeCompare(b.id);
-}
-
-function canonicalJson(value) {
-  return JSON.stringify(sortValue(value));
-}
-
-function sortValue(value) {
-  if (Array.isArray(value)) return value.map(sortValue);
-  if (value && typeof value === 'object' && value.constructor === Object) {
-    const out = {};
-    for (const key of Object.keys(value).sort()) {
-      if (value[key] !== undefined) out[key] = sortValue(value[key]);
-    }
-    return out;
-  }
-  return value;
-}
-
-async function sha256Hex(text) {
-  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', textBytes(text)))].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function textBytes(text) {
-  return new TextEncoder().encode(text);
-}
-
 function arrayBufferToBase64(buffer) {
   return btoa(String.fromCharCode(...new Uint8Array(buffer)));
 }
@@ -945,10 +880,6 @@ function base64ToArrayBuffer(value) {
 function short(value) {
   if (!value) return '-';
   return value.length > 18 ? `${value.slice(0, 10)}...${value.slice(-6)}` : value;
-}
-
-function requireSecureCrypto() {
-  if (!crypto?.subtle) throw new Error('Web Crypto is unavailable. Serve this app over HTTPS or localhost.');
 }
 
 function escapeHtml(value) {
