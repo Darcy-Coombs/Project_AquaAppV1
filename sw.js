@@ -1,5 +1,15 @@
-const CACHE = 'aqua-field-v1';
-const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.webmanifest', './icon.svg'];
+const CACHE = 'aqua-field-v2';
+const ASSETS = [
+  './',
+  './index.html',
+  './style.css',
+  './app.js',
+  './manifest.webmanifest',
+  './icon.svg',
+  './protocol/events.js',
+  './protocol/state.js',
+  './protocol/validator.js'
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)));
