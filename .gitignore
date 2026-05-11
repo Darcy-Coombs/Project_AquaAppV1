@@ -4,4 +4,5 @@ node_modules/
 *.err.log
 project_aqua_book_text.txt
 .webtester-*.png
-.field-web-smoke.png
+.field-web-*.png
+dist/aqua-trusted-field-machine/

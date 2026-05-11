@@ -13,6 +13,8 @@ It is meant for real-world trial runs with several phones.
 - creates one Aqua account per phone
 - encrypts the private key with the local passphrase
 - creates signed protocol-compatible events in the browser
+- links phone-created events to recent local parents
+- verifies imported events before storing them
 - stores events locally on the phone
 - pushes pending events to a reachable Aqua node
 - pulls events from a reachable Aqua node
@@ -24,7 +26,7 @@ It is meant for real-world trial runs with several phones.
 Run:
 
 ```powershell
-npm.cmd run dev:field
+Start Aqua Field.bat
 ```
 
 Open:
@@ -33,10 +35,11 @@ Open:
 http://localhost:5180
 ```
 
-Start a node too:
+This starts both:
 
-```powershell
-npm.cmd run dev:node -- --port 7001
+```text
+http://localhost:7001  node/API
+http://localhost:5180  field app
 ```
 
 ## Phone Trial
@@ -69,6 +72,35 @@ A zip copy is also available at:
 ```text
 dist/aqua-field-kit.zip
 ```
+
+## Trusted Field Machine Package
+
+For a package that includes the working node, protocol modules, field app, docs, launchers, and packaging scripts, run:
+
+```powershell
+npm.cmd run pack:field-machine
+```
+
+The full package is written to:
+
+```text
+dist/aqua-trusted-field-machine/
+```
+
+It is intended for a laptop or small field computer that acts as the trusted test node while phones connect to it.
+
+## Import Validation
+
+The phone app rejects imported or pulled events if they fail:
+
+- protocol and module version checks
+- known module/type checks
+- canonical event hash check
+- Ed25519 signature verification
+- parent reference checks
+- schema checks
+- verified-user checks for governance and chat
+- spend/escrow checks that would create impossible balances
 
 ## Nearby / Bluetooth Reality
 
