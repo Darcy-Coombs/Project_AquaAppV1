@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#08786f" />
     <title>Aqua Field</title>
+    <link rel="icon" href="./icon.svg" />
+    <link rel="manifest" href="./manifest.webmanifest" />
     <style>
 :root {
   color-scheme: light;
@@ -1832,6 +1834,10 @@ function escapeHtml(value) {
 
 function escapeAttr(value) {
   return escapeHtml(value).replaceAll('\n', '&#10;');
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 
 render();

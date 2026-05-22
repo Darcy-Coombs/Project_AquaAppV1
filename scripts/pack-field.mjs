@@ -8,11 +8,13 @@ const out = join(root, 'dist', 'aqua-field-kit');
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 cpSync(src, out, { recursive: true, filter: (path) => !path.endsWith('dev-server.ts') });
-writeFileSync(join(out, 'start.html'), standaloneHtml());
+const directOpenHtml = standaloneHtml();
+writeFileSync(join(out, 'index.html'), directOpenHtml);
+writeFileSync(join(out, 'start.html'), directOpenHtml);
 writeFileSync(join(out, 'FIELD-KIT.txt'), `Aqua Field Kit
 
-For the simplest phone test, open start.html.
-It is a single-file version for phones that block local JavaScript modules.
+For the simplest phone test, open index.html or start.html.
+Both are single-file versions for phones that block local JavaScript modules.
 
 For installable PWA behaviour, serve this folder over HTTPS and open index.html.
 
@@ -30,7 +32,7 @@ function standaloneHtml() {
     readModule(join(src, 'protocol', 'events.js')),
     readModule(join(src, 'protocol', 'state.js')),
     readModule(join(src, 'protocol', 'validator.js')),
-    readModule(join(src, 'app.js')).replace(/if \('serviceWorker' in navigator\) \{[\s\S]*?render\(\);/, 'render();')
+    readModule(join(src, 'app.js'))
   ].join('\n\n');
 
   return `<!doctype html>
@@ -40,6 +42,8 @@ function standaloneHtml() {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#08786f" />
     <title>Aqua Field</title>
+    <link rel="icon" href="./icon.svg" />
+    <link rel="manifest" href="./manifest.webmanifest" />
     <style>
 ${style}
     </style>

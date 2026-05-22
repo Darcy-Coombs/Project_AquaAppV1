@@ -1,7 +1,7 @@
 Aqua Field Kit
 
-For the simplest phone test, open start.html.
-It is a single-file version for phones that block local JavaScript modules.
+For the simplest phone test, open index.html or start.html.
+Both are single-file versions for phones that block local JavaScript modules.
 
 For installable PWA behaviour, serve this folder over HTTPS and open index.html.
 
