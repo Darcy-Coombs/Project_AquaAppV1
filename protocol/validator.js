@@ -28,6 +28,15 @@ async function validateBase(event, state) {
 }
 
 function validateIdentity(event, state) {
+  if (event.type === 'identity.claim') {
+    if (typeof event.payload.name !== 'string' || !event.payload.name.trim()) return fail('identity-name-required');
+    return { ok: true };
+  }
+  if (event.type === 'identity.pohw_attest') {
+    if (typeof event.payload.subject !== 'string' || !event.payload.subject) return fail('pohw-subject-required');
+    if (!['unverified', 'locally_verified', 'vouched', 'challenged', 'archived'].includes(event.payload.status)) return fail('invalid-pohw-status');
+    return { ok: true };
+  }
   if (event.type === 'identity.email_claim') {
     if (!hex(event.payload.emailHash)) return fail('email-hash-required');
     if (!Number.isFinite(event.payload.createdAt)) return fail('email-created-at-required');
@@ -175,7 +184,7 @@ function validateChat(event, state) {
     if (!state.chat.rooms.has(roomId)) return fail('room-not-found');
     return { ok: true };
   }
-  if (event.type === 'chat.message_send') {
+  if (event.type === 'chat.message_send' || event.type === 'chat.message_create') {
     if (!state.chat.rooms.has(roomId)) return fail('room-not-found');
     if (!event.payload.text) return fail('message-required');
     return { ok: true };
