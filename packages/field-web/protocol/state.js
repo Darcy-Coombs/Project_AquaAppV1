@@ -123,11 +123,30 @@ export function deterministicCommittee(roundId, priorEventHash, eligibleUserIds,
 
 function applyIdentity(event, state) {
   let identity = state.identities.get(event.author) ?? { userId: event.author, level: undefined, betaOverrideActive: false, isVerified: false };
+  if (event.type === 'identity.email_claim' || event.type === 'identity.claim') {
+    identity = {
+      ...identity,
+      emailHash: event.payload.emailHash,
+      displayName: event.payload.name,
+      emailClaimedAt: event.payload.createdAt ?? event.createdAt,
+      level: identity.level ?? LEVEL_0_EMAIL
+    };
+    if (event.payload.emailHash) state.emailIndex.set(event.payload.emailHash, event.author);
+  }
   if (event.type === 'identity.email_claim') {
-    identity = { ...identity, emailHash: event.payload.emailHash, emailClaimedAt: event.payload.createdAt, level: identity.level ?? LEVEL_0_EMAIL };
     state.emailIndex.set(event.payload.emailHash, event.author);
   }
-  if (event.type === 'identity.pohw_simple') {
+  if (event.type === 'identity.pohw_simple' || event.type === 'identity.pohw_attest') {
+    const subject = event.payload.subject ?? event.author;
+    if (subject !== event.author) {
+      const subjectIdentity = state.identities.get(subject) ?? { userId: subject, level: LEVEL_0_EMAIL, betaOverrideActive: false, isVerified: false };
+      const verified = event.payload.status === 'locally_verified' || event.payload.status === 'vouched';
+      const nextSubject = { ...subjectIdentity, pohw: event.payload, level: verified ? LEVEL_1_POHW : subjectIdentity.level };
+      nextSubject.betaOverrideActive = !!nextSubject.betaOverride && nextSubject.betaOverride.expiresAt > state.now;
+      nextSubject.isVerified = nextSubject.level === LEVEL_1_POHW || nextSubject.level === LEVEL_2_FULL || nextSubject.betaOverrideActive;
+      state.identities.set(subject, nextSubject);
+      return;
+    }
     identity = { ...identity, emailHash: event.payload.emailHash, pohw: event.payload, level: LEVEL_1_POHW };
   }
   if (event.type === 'identity.beta_override') {
@@ -209,7 +228,7 @@ function applyChat(event, state) {
     if (!state.chat.joins.has(event.payload.roomId)) state.chat.joins.set(event.payload.roomId, new Set());
     state.chat.joins.get(event.payload.roomId).add(event.author);
   }
-  if (event.type === 'chat.message_send') state.chat.messages.push(event);
+  if (event.type === 'chat.message_send' || event.type === 'chat.message_create') state.chat.messages.push(event);
   if (event.type === 'chat.room_credit_issue') add(roomCredits(state, event.payload.roomId), event.payload.to, event.payload.amount);
   if (event.type === 'chat.room_credit_transfer') {
     const credits = roomCredits(state, event.payload.roomId);

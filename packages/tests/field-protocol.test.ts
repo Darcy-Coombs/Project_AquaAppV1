@@ -158,6 +158,22 @@ test('invalid imported signature is rejected', async () => {
   await rejected(state, { ...valid, signature: other.signature }, 'event-signature-invalid');
 });
 
+test('legacy node identity events replay as verified beta identities', async () => {
+  const state = stateModule.initialState();
+  const legacy = await events.generateIdentityKeypair();
+  await append(state, await signed('identity.claim', {
+    name: 'legacy-human',
+    privacy: 'no private personal data on ledger'
+  }, legacy, state));
+  await append(state, await signed('identity.pohw_attest', {
+    subject: legacy.publicKey,
+    status: 'locally_verified',
+    method: 'prototype-local-attestation',
+    biometricData: false
+  }, legacy, state));
+  assert.equal(stateModule.isVerifiedIdentity(state, legacy.publicKey), true);
+});
+
 function parents(state: ProtocolState) {
   return state.events.slice().sort(stateModule.compareEvents).slice(-2).map((event: any) => event.id);
 }
