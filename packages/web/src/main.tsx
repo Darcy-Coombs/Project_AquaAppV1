@@ -11,7 +11,7 @@ import {
   type AquaBundle,
   type AquaEvent
 } from "@aqua/protocol";
-import { aqua, assertProductionSafe, formatAqua, loadConfig } from "@aqua/shared";
+import { FIELDKIT_VERSION, aqua, assertProductionSafe, formatAqua, loadConfig } from "@aqua/shared";
 import { db, type StoredKey } from "./storage.js";
 import "./styles.css";
 
@@ -503,11 +503,12 @@ function App() {
           <img src="/icon.svg" alt="" />
           <div>
             <strong>Mobile download</strong>
-            <p>Install Aqua to your phone home screen. The app shell works offline after first load.</p>
+            <p>Install Aqua Fieldkit v{FIELDKIT_VERSION} to your phone home screen. The app shell works offline after first load.</p>
             <button data-testid="install-app" onClick={installMobileApp}>{installPrompt ? "Install app" : "How to install"}</button>
             <small data-testid="install-status">{installStatus}</small>
           </div>
         </div>
+        <p>Fieldkit version {FIELDKIT_VERSION}</p>
         <p>Node {config.nodeUrl}</p>
         <p>Public exports never include private keys. Encrypted backup extension point is reserved here.</p>
       </section>}

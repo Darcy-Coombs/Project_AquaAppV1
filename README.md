@@ -1,4 +1,4 @@
-# Project Aqua Web App v1.0
+# Project Aqua Web App / Fieldkit v1.0.1
 
 Browser-first, local-first TypeScript implementation of the Aqua civic-economic protocol. The protocol package is UI-independent and drives identity, UBI, Fire/Sump accounting, Chaos Chat, governance, voucher pools, bundles, and deterministic replay.
 

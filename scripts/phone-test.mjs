@@ -15,7 +15,7 @@ if (!host) {
 }
 
 console.log("");
-console.log("Project Aqua phone test");
+console.log("Project Aqua Fieldkit v1.0.1 phone test");
 console.log("=======================");
 console.log("");
 console.log(`Phone URL: ${webUrl}`);
