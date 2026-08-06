@@ -1,0 +1,12 @@
+node_modules/
+dist/
+packages/*/dist/
+packages/*/*.tsbuildinfo
+*.sqlite
+*.sqlite-*
+.dev*.log
+debug.log
+test-results/
+playwright-report/
+.playwright/
+.vite/

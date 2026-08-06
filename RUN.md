@@ -1,0 +1,79 @@
+# Run Project Aqua
+
+Use this file as the quick run card for the stack.
+
+## One-Click Windows Launch
+
+Double-click:
+
+```text
+RUN_PROJECT_AQUA.cmd
+```
+
+The launcher installs dependencies if needed, opens `http://127.0.0.1:5173`, and starts both the node relay and web app. Leave the launcher window open while using Aqua.
+
+## Phone Test Launch
+
+Double-click:
+
+```text
+PHONE_TEST_AQUA.cmd
+```
+
+This starts the web app and Aqua node on your computer's LAN address so a phone on the same Wi-Fi can open it. The launcher prints the phone URL, usually like:
+
+```text
+http://192.168.x.x:5173
+```
+
+Use the Sync screen on both devices to find the same local node and test gossip/event sync. Over plain LAN HTTP, some phones may allow browser testing but not full PWA install; true mobile install/download needs HTTPS, such as GitHub Codespaces after the repo is pushed.
+
+## GitHub Codespaces Launch
+
+From GitHub:
+
+1. Click `Code`.
+2. Click `Codespaces`.
+3. Create/open a codespace.
+
+The devcontainer installs dependencies, starts the stack, and auto-forwards the web app on port `5173`.
+
+## Start The App
+
+PowerShell may block `npm.ps1`, so on this Windows machine prefer:
+
+```bash
+npm.cmd install
+npm.cmd run dev
+```
+
+Then open:
+
+- Web app: `http://127.0.0.1:5173`
+- Node relay health: `http://127.0.0.1:8787/health`
+
+## What `npm run dev` Starts
+
+- `@aqua/node`: local Node relay with HTTP, WebSocket gossip, and SQLite storage.
+- `@aqua/web`: Vite-built React app served locally at port `5173`.
+
+## First Smoke Flow
+
+1. Click `Run` in the app, or use the identity screen manually.
+2. Confirm the dashboard shows a verified identity.
+3. Confirm the balance reaches `480.00` Aqua.
+4. Check sync status. If the relay is offline, events queue locally and sync later.
+
+## Verification Commands
+
+```bash
+npm.cmd test
+npm.cmd run test:unit
+npm.cmd run test:integration
+npm.cmd run test:e2e
+npm.cmd run build
+npm.cmd run lint
+npm.cmd run typecheck
+```
+
+Use `npm ...` instead of `npm.cmd ...` on shells where npm scripts are not blocked.

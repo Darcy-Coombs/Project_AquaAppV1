@@ -1,0 +1,21 @@
+{
+  "name": "Project Aqua",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-24-bookworm",
+  "postCreateCommand": "npm install",
+  "postAttachCommand": "npm run dev",
+  "forwardPorts": [5173, 8787],
+  "portsAttributes": {
+    "5173": {
+      "label": "Project Aqua Web",
+      "onAutoForward": "openBrowser"
+    },
+    "8787": {
+      "label": "Aqua Node Relay"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-playwright.playwright"]
+    }
+  }
+}

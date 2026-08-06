@@ -1,0 +1,26 @@
+{
+  "name": "Project Aqua",
+  "short_name": "Aqua",
+  "description": "Local-first Aqua civic-economic protocol wallet, sync node client, chat, governance, and voucher pools.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#eef3f0",
+  "theme_color": "#112738",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "url": "/",
+      "description": "Open Project Aqua dashboard"
+    }
+  ]
+}
