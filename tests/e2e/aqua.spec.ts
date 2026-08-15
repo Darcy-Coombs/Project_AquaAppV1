@@ -39,7 +39,7 @@ test("mobile install manifest and download controls are available", async ({ pag
   await expect(await manifest.json()).toMatchObject({
     name: "Project Aqua",
     display: "standalone",
-    start_url: "/"
+    start_url: "."
   });
   await page.goto("/");
   await page.getByRole("button", { name: "settings" }).click();

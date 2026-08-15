@@ -1,6 +1,6 @@
 {
   "name": "@aqua/protocol",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "exports": {
     ".": "./dist/index.js"
@@ -10,7 +10,7 @@
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
-    "@aqua/shared": "1.0.1",
+    "@aqua/shared": "1.0.2",
     "@noble/curves": "^1.8.2",
     "@noble/hashes": "^1.7.2",
     "zod": "^3.24.2"

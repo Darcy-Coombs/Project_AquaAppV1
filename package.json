@@ -1,6 +1,6 @@
 {
   "name": "project-aqua",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "phone:test": "node scripts/phone-test.mjs",
+    "fieldkit:build": "npm run build -w @aqua/web",
     "build": "tsc -b && npm run build -w @aqua/web",
     "lint": "node scripts/lint.mjs",
     "test": "vitest run --configLoader runner --config vitest.config.mjs tests/unit tests/integration",

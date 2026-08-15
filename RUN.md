@@ -1,6 +1,6 @@
 # Run Project Aqua
 
-Use this file as the quick run card for Aqua Fieldkit v1.0.1.
+Use this file as the quick run card for Aqua Fieldkit v1.0.2.
 
 ## One-Click Windows Launch
 
@@ -27,6 +27,16 @@ http://192.168.x.x:5173
 ```
 
 Use the Sync screen on both devices to find the same local node and test gossip/event sync. Over plain LAN HTTP, some phones may allow browser testing but not full PWA install; true mobile install/download needs HTTPS, such as GitHub Codespaces after the repo is pushed.
+
+## Phone Fieldkit Download
+
+Do not open `packages/web/index.html` directly from the source-code ZIP on a phone. That file is the Vite development entry point. Use one of these instead:
+
+- GitHub Pages fieldkit: the built static app from the repo's `gh-pages` branch.
+- Local phone test: double-click `PHONE_TEST_AQUA.cmd` and open the printed phone URL.
+- Manual static build: run `npm.cmd run build`, then serve `packages/web/dist` from a local web server.
+
+For gossip/sync testing, open Settings in the phone app and save the node URL printed by `PHONE_TEST_AQUA.cmd`, usually `http://192.168.x.x:8787`.
 
 ## GitHub Codespaces Launch
 

@@ -4,6 +4,8 @@ For the shortest run card, see `RUN.md`.
 
 Fastest local path: double-click `RUN_PROJECT_AQUA.cmd`.
 
+Phone test path: double-click `PHONE_TEST_AQUA.cmd`, open the printed phone URL, then save the printed relay URL in Settings.
+
 1. Install dependencies:
 
 ```bash

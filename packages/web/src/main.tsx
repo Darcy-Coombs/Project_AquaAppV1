@@ -22,6 +22,9 @@ const config = loadConfig({
 });
 assertProductionSafe(config);
 
+const PRIMARY_NODE_KEY = "aqua-primary-node-url";
+const KNOWN_NODES_KEY = "aqua-node-urls";
+
 type Tab = "dashboard" | "identity" | "wallet" | "chat" | "governance" | "dex" | "sync" | "export" | "settings" | "dev";
 type NodeProbe = { url: string; online: boolean; eventCount: number; latencyMs?: number; error?: string };
 type InstallPromptEvent = Event & {
@@ -38,6 +41,8 @@ function App() {
   const [running, setRunning] = useState(false);
   const [queueCount, setQueueCount] = useState(0);
   const [nodes, setNodes] = useState<NodeProbe[]>([]);
+  const [nodeUrl, setNodeUrl] = useState(initialNodeUrl);
+  const [nodeUrlDraft, setNodeUrlDraft] = useState(initialNodeUrl);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [installStatus, setInstallStatus] = useState("ready for mobile install");
@@ -45,7 +50,7 @@ function App() {
 
   useEffect(() => {
     void refresh();
-    if ("serviceWorker" in navigator) void navigator.serviceWorker.register("/sw.js");
+    if ("serviceWorker" in navigator) void navigator.serviceWorker.register("./sw.js");
   }, []);
 
   useEffect(() => {
@@ -72,7 +77,7 @@ function App() {
   async function commit(event: AquaEvent) {
     await db.events.put(event);
     try {
-      await fetch(`${config.nodeUrl}/events`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(event) });
+      await fetch(`${nodeUrl}/events`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(event) });
       setSync("synced");
     } catch {
       await db.queue.put(event);
@@ -82,7 +87,7 @@ function App() {
   }
 
   async function submitOrQueue(event: AquaEvent, silent = false) {
-    const targetUrl = nodes.find((node) => node.online)?.url ?? config.nodeUrl;
+    const targetUrl = nodes.find((node) => node.online)?.url ?? nodeUrl;
     try {
       await postEvent(targetUrl, event);
       if (!silent) setSync("synced");
@@ -200,7 +205,7 @@ function App() {
       payload: { userId, emailHash, verificationLevel: "email" }
     });
     await db.keys.put({ id: "primary", userId, publicKey: pair.publicKey, privateKey: pair.privateKey });
-    await fetch(`${config.nodeUrl}/dev/email-token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ emailHash }) }).catch(() => undefined);
+    await fetch(`${nodeUrl}/dev/email-token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ emailHash }) }).catch(() => undefined);
     await commit(created);
   }
 
@@ -369,9 +374,21 @@ function App() {
   }
 
   async function scanLocalNodes() {
-    const probes = await Promise.all(nodeCandidates().map(probeNode));
+    const probes = await Promise.all(nodeCandidates(nodeUrl).map(probeNode));
     setNodes(probes);
     return probes;
+  }
+
+  function saveNodeUrl() {
+    const normalized = nodeUrlDraft.trim().replace(/\/$/, "");
+    if (!normalized) return;
+    const saved = nodeCandidates(normalized);
+    localStorage.setItem(PRIMARY_NODE_KEY, normalized);
+    localStorage.setItem(KNOWN_NODES_KEY, saved.join(","));
+    setNodeUrl(normalized);
+    setNodeUrlDraft(normalized);
+    setNodes(saved.map((url): NodeProbe => ({ url, online: false, eventCount: 0 })));
+    setSync(`node set to ${normalized}`);
   }
 
   async function exportData() {
@@ -486,7 +503,7 @@ function App() {
         </div>
         <div className="action-row"><button onClick={scanLocalNodes}>Find local nodes</button><button onClick={syncNow}>Sync now</button></div>
         <div className="node-list" data-testid="node-list">
-          {(nodes.length ? nodes : nodeCandidates().map((url): NodeProbe => ({ url, online: false, eventCount: 0 }))).map((node) => (
+          {(nodes.length ? nodes : nodeCandidates(nodeUrl).map((url): NodeProbe => ({ url, online: false, eventCount: 0 }))).map((node) => (
             <article className={node.online ? "node-card online" : "node-card"} key={node.url}>
               <span>{node.online ? "online" : "unknown"}</span>
               <strong>{node.url}</strong>
@@ -500,7 +517,7 @@ function App() {
       {tab === "settings" && <section className="panel form-panel">
         <div className="section-heading"><p className="eyebrow">Settings</p><h2>Runtime</h2></div>
         <div className="install-card">
-          <img src="/icon.svg" alt="" />
+          <img src="./icon.svg" alt="" />
           <div>
             <strong>Mobile download</strong>
             <p>Install Aqua Fieldkit v{FIELDKIT_VERSION} to your phone home screen. The app shell works offline after first load.</p>
@@ -508,8 +525,14 @@ function App() {
             <small data-testid="install-status">{installStatus}</small>
           </div>
         </div>
+        <label className="field-label" htmlFor="node-url">Relay node URL</label>
+        <div className="node-url-row">
+          <input id="node-url" value={nodeUrlDraft} onChange={(event) => setNodeUrlDraft(event.currentTarget.value)} />
+          <button onClick={saveNodeUrl}>Save node URL</button>
+        </div>
+        <p className="sync-line">For phone LAN testing, use the node URL printed by <code>PHONE_TEST_AQUA.cmd</code>.</p>
         <p>Fieldkit version {FIELDKIT_VERSION}</p>
-        <p>Node {config.nodeUrl}</p>
+        <p>Node {nodeUrl}</p>
         <p>Public exports never include private keys. Encrypted backup extension point is reserved here.</p>
       </section>}
       {tab === "dev" && <section className="panel form-panel"><div className="section-heading"><p className="eyebrow">Development</p><h2>Dev Panel</h2></div><p>BETAoverride enabled: {String(config.betaOverrideEnabled)}</p><p>Proxy debug is dev-only.</p></section>}
@@ -530,9 +553,13 @@ function epoch(): string {
   return `${now.getUTCFullYear()}-w${Math.floor((now.getTime() - start.getTime()) / (7 * 86400000)) + 1}`;
 }
 
-function nodeCandidates(): string[] {
-  const saved = globalThis.localStorage?.getItem("aqua-node-urls")?.split(",").map((url) => url.trim()).filter(Boolean) ?? [];
-  return [...new Set([config.nodeUrl, "http://127.0.0.1:8787", "http://localhost:8787", ...saved])];
+function initialNodeUrl(): string {
+  return globalThis.localStorage?.getItem(PRIMARY_NODE_KEY) ?? config.nodeUrl;
+}
+
+function nodeCandidates(primaryUrl: string): string[] {
+  const saved = globalThis.localStorage?.getItem(KNOWN_NODES_KEY)?.split(",").map((url) => url.trim()).filter(Boolean) ?? [];
+  return [...new Set([primaryUrl, config.nodeUrl, "http://127.0.0.1:8787", "http://localhost:8787", ...saved])];
 }
 
 async function probeNode(url: string): Promise<NodeProbe> {

@@ -1,6 +1,6 @@
 {
   "name": "@aqua/node",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "exports": {
     ".": "./dist/index.js"
@@ -11,8 +11,8 @@
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
-    "@aqua/protocol": "1.0.1",
-    "@aqua/shared": "1.0.1",
+    "@aqua/protocol": "1.0.2",
+    "@aqua/shared": "1.0.2",
     "ws": "^8.18.0"
   },
   "devDependencies": {

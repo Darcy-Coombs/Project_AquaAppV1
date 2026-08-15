@@ -302,6 +302,23 @@ textarea {
   margin-top: 8px;
 }
 
+.field-label {
+  color: #263942;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.node-url-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.node-url-row input {
+  flex: 1 1 260px;
+}
+
 footer {
   color: #5d6e76;
   padding: 0 clamp(12px, 4vw, 34px) 22px;
