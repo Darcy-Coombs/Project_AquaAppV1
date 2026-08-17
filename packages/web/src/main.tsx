@@ -50,7 +50,7 @@ function App() {
 
   useEffect(() => {
     void refresh();
-    if ("serviceWorker" in navigator) void navigator.serviceWorker.register("./sw.js");
+    if (location.protocol !== "file:" && "serviceWorker" in navigator) void navigator.serviceWorker.register("./sw.js");
   }, []);
 
   useEffect(() => {

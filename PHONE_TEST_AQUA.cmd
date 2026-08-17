@@ -4,7 +4,7 @@ cd /d "%~dp0"
 
 title Project Aqua Phone Test
 echo.
-echo Project Aqua Fieldkit v1.0.2 Phone Test
+echo Project Aqua Fieldkit v1.0.3 Phone Test
 echo =======================
 echo.
 

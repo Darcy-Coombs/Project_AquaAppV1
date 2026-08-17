@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Project Aqua icon">
+  <rect width="512" height="512" rx="96" fill="#112738"/>
+  <path d="M105 322c46 34 93 34 140 0s94-34 141 0" fill="none" stroke="#9ed8c7" stroke-width="34" stroke-linecap="round"/>
+  <path d="M140 255c37 26 75 26 113 0s76-26 114 0" fill="none" stroke="#f4c542" stroke-width="30" stroke-linecap="round"/>
+  <circle cx="256" cy="168" r="58" fill="#f7faf8"/>
+  <path d="M231 168h50m-25-25v50" stroke="#146c6f" stroke-width="22" stroke-linecap="round"/>
+</svg>

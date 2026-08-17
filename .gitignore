@@ -8,5 +8,6 @@ packages/*/*.tsbuildinfo
 debug.log
 test-results/
 playwright-report/
+output/
 .playwright/
 .vite/

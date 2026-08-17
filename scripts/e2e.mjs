@@ -1,13 +1,30 @@
 import { spawn, spawnSync } from "node:child_process";
+import { createServer } from "node:net";
 import { join } from "node:path";
 
 const npx = process.platform === "win32" ? "npx.cmd" : "npx";
 const root = process.cwd();
-const nodePort = 19087;
-const webPort = 15173;
+const nodePort = await getFreePort();
+const webPort = await getFreePort();
 const nodeUrl = `http://127.0.0.1:${nodePort}`;
 const webUrl = `http://127.0.0.1:${webPort}`;
 const servers = [];
+
+async function getFreePort() {
+  return await new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close(() => reject(new Error("Could not allocate a free TCP port")));
+        return;
+      }
+      const port = address.port;
+      server.close(() => resolve(port));
+    });
+  });
+}
 
 function start(command, args, options = {}) {
   const child = spawn(command, args, {

@@ -1,6 +1,6 @@
 {
   "name": "@aqua/web",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "scripts": {
     "dev": "vite build --mode development --configLoader runner && vite preview --configLoader runner --host 127.0.0.1 --port 5173 --strictPort",
@@ -8,8 +8,8 @@
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
-    "@aqua/protocol": "1.0.2",
-    "@aqua/shared": "1.0.2",
+    "@aqua/protocol": "1.0.3",
+    "@aqua/shared": "1.0.3",
     "dexie": "^4.0.11",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { pathToFileURL } from "node:url";
 
 test("tester can onboard, verify, claim, and see mobile dashboard", async ({ page }) => {
   await page.goto("/");
@@ -46,4 +47,13 @@ test("mobile install manifest and download controls are available", async ({ pag
   await expect(page.getByText("Mobile download")).toBeVisible();
   await page.getByTestId("install-app").click();
   await expect(page.getByTestId("install-status")).toContainText(/install|Home Screen/);
+});
+
+test("direct-open fieldkit index renders and runs from file", async ({ page }) => {
+  await page.goto(pathToFileURL(`${process.cwd()}/index.html`).toString());
+  await expect(page.getByRole("heading", { name: "Project Aqua" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Local State" })).toBeVisible();
+  await page.getByTestId("run-button").click();
+  await expect(page.getByTestId("run-status")).toContainText("run-complete");
+  await expect(page.getByTestId("balance")).toContainText("480.00");
 });

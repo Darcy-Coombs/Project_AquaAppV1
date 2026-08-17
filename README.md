@@ -1,4 +1,4 @@
-# Project Aqua Web App / Fieldkit v1.0.2
+# Project Aqua Web App / Fieldkit v1.0.3
 
 Browser-first, local-first TypeScript implementation of the Aqua civic-economic protocol. The protocol package is UI-independent and drives identity, UBI, Fire/Sump accounting, Chaos Chat, governance, voucher pools, bundles, and deterministic replay.
 
@@ -32,8 +32,10 @@ This v1 intentionally excludes NAMIA, full Equitism, real fiat ramps, KYC, banki
 
 ## Usable App
 
-Double-click `RUN_PROJECT_AQUA.cmd` on Windows for the easiest local launch. Double-click `PHONE_TEST_AQUA.cmd` to expose the app and relay on your LAN for phone sync testing. From GitHub, use the `gh-pages` fieldkit build or open the repo in Codespaces; `.devcontainer/devcontainer.json` installs dependencies, starts the stack, and forwards the web app. Manual run: `npm run dev`, then open `http://127.0.0.1:5173`. The node relay runs at `http://127.0.0.1:8787`. See `RUN.md` for the quick run card.
+Double-click `RUN_PROJECT_AQUA.cmd` on Windows for the easiest local launch. Double-click `PHONE_TEST_AQUA.cmd` to expose the app and relay on your LAN for phone sync testing. From GitHub, use the `gh-pages` fieldkit build, the direct-open root `index.html`, or open the repo in Codespaces; `.devcontainer/devcontainer.json` installs dependencies, starts the stack, and forwards the web app. Manual run: `npm run dev`, then open `http://127.0.0.1:5173`. The node relay runs at `http://127.0.0.1:8787`. See `RUN.md` for the quick run card.
 
 ## Phone Fieldkit
 
-The source-code `packages/web/index.html` is a Vite entry file and will not run by itself from a phone download. For a phone, use the published GitHub Pages fieldkit, the generated `packages/web/dist` folder from `npm run build`, or the LAN URL printed by `PHONE_TEST_AQUA.cmd`. For live sync/gossip tests, the phone and computer should be on the same Wi-Fi, then set Settings -> Relay node URL to the printed `http://<computer-lan-ip>:8787` node URL.
+The source-code `packages/web/index.html` is a Vite entry file and will not run by itself from a phone download. For a phone, use the published GitHub Pages fieldkit, the direct-open root `index.html`, the generated `fieldkit/index.html`, or the LAN URL printed by `PHONE_TEST_AQUA.cmd`. For live sync/gossip tests, the phone and computer should be on the same Wi-Fi, then set Settings -> Relay node URL to the printed `http://<computer-lan-ip>:8787` node URL.
+
+Run `npm.cmd run fieldkit:build` to regenerate the direct-open fieldkit after web changes.
