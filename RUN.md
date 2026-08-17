@@ -1,6 +1,6 @@
 # Run Project Aqua
 
-Use this file as the quick run card for Aqua Fieldkit v1.0.3.
+Use this file as the quick run card for Aqua Fieldkit v1.0.4.
 
 ## One-Click Windows Launch
 

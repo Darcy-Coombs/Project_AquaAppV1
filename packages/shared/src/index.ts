@@ -1,5 +1,5 @@
 export const AQUA_SCALE = 100n;
-export const FIELDKIT_VERSION = "1.0.3";
+export const FIELDKIT_VERSION = "1.0.4";
 export const WEEKLY_UBI_AQUA = 480n * AQUA_SCALE;
 export const TRANSACTION_TAX_BASIS_POINTS = 400n;
 export const BASIS_POINTS = 10_000n;

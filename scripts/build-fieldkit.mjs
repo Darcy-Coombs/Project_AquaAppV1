@@ -22,11 +22,12 @@ const js = (await readFile(join(distDir, jsMatch[1]), "utf8")).replace(/<\/scrip
 
 const singleFile = html
   .replace(cssMatch[0], () => `<style>\n${css}\n</style>`)
-  .replace(jsMatch[0], () => `<script type="module">\n${js}\n</script>`)
+  .replace(jsMatch[0], "")
   .replace("</head>", `  <script>
       window.AQUA_FIELDKIT_DIRECT_OPEN = location.protocol === "file:";
     </script>
-  </head>`);
+  </head>`)
+  .replace("</body>", () => `<script>\n${js}\n</script>\n</body>`);
 
 await mkdir(fieldkitDir, { recursive: true });
 await writeFile(fieldkitIndexPath, singleFile);

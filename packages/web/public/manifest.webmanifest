@@ -2,7 +2,7 @@
   "name": "Project Aqua",
   "short_name": "Aqua",
   "id": ".",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Local-first Aqua civic-economic protocol wallet, sync node client, chat, governance, and voucher pools.",
   "start_url": ".",
   "scope": ".",

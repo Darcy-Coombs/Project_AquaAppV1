@@ -1,4 +1,4 @@
-const CACHE_NAME = "aqua-v1.0.3";
+const CACHE_NAME = "aqua-v1.0.4";
 const APP_SHELL = ["./", "index.html", "manifest.webmanifest", "icon.svg"];
 
 self.addEventListener("install", (event) => {
