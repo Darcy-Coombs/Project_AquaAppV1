@@ -1,10 +1,12 @@
 export const AQUA_SCALE = 100n;
-export const FIELDKIT_VERSION = "1.0.4";
+export const FIELDKIT_VERSION = "1.1.0-alpha.1";
 export const WEEKLY_UBI_AQUA = 480n * AQUA_SCALE;
 export const TRANSACTION_TAX_BASIS_POINTS = 400n;
 export const BASIS_POINTS = 10_000n;
-export const GENESIS_EARTH_SUPPLY = 300_000_000_000_000n * AQUA_SCALE;
+export const LEGACY_GENESIS_EARTH_SUPPLY = 300_000_000_000_000n * AQUA_SCALE;
+export const GENESIS_EARTH_SUPPLY = 7_000_000_000n * 100_000n * AQUA_SCALE;
 export const EARTH_UBI_CAP_PER_ACCOUNT = 100_000n * AQUA_SCALE;
+export const ECONOMY_POLICY_ID = "aqua-alpha-economy-v2-700t-100k-480-4pct";
 export const PROXY_MAX_DEPTH = 5;
 
 export type RuntimeMode = "development" | "test" | "production";

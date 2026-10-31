@@ -14,18 +14,22 @@ import {
 import { FIELDKIT_VERSION, aqua, assertProductionSafe, formatAqua, loadConfig } from "@aqua/shared";
 import { db, type StoredKey } from "./storage.js";
 import "./styles.css";
+import { AlphaNetwork } from "./AlphaNetwork.js";
+import { BranchWorkspace } from "./BranchWorkspace.js";
+import { KeyBackup } from "./KeyBackup.js";
+import { IdLab } from "./id-lab/IdLab.js";
 
 const config = loadConfig({
   mode: import.meta.env.MODE === "production" ? "production" : "development",
   betaOverrideEnabled: import.meta.env.MODE !== "production",
-  nodeUrl: import.meta.env.VITE_AQUA_NODE_URL || undefined
+  nodeUrl: import.meta.env.VITE_AQUA_NODE_URL === "same-origin" && location.protocol !== "file:" ? location.origin : import.meta.env.VITE_AQUA_NODE_URL === "same-origin" ? undefined : import.meta.env.VITE_AQUA_NODE_URL || undefined
 });
 assertProductionSafe(config);
 
 const PRIMARY_NODE_KEY = "aqua-primary-node-url";
 const KNOWN_NODES_KEY = "aqua-node-urls";
 
-type Tab = "dashboard" | "identity" | "wallet" | "chat" | "governance" | "dex" | "sync" | "export" | "settings" | "dev";
+type Tab = "community" | "decisions" | "dashboard" | "identity" | "id-lab" | "wallet" | "chat" | "governance" | "dex" | "sync" | "export" | "settings" | "dev";
 type NodeProbe = { url: string; online: boolean; eventCount: number; latencyMs?: number; error?: string };
 type InstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -33,6 +37,7 @@ type InstallPromptEvent = Event & {
 };
 
 function App() {
+  const [branchDemo, setBranchDemo] = useState(false);
   const [events, setEvents] = useState<AquaEvent[]>([]);
   const [key, setKey] = useState<StoredKey | null>(null);
   const [tab, setTab] = useState<Tab>("dashboard");
@@ -77,7 +82,7 @@ function App() {
   async function commit(event: AquaEvent) {
     await db.events.put(event);
     try {
-      await fetch(`${nodeUrl}/events`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(event) });
+      await postEvent(nodeUrl, event);
       setSync("synced");
     } catch {
       await db.queue.put(event);
@@ -432,15 +437,18 @@ function App() {
           <h1>Project Aqua</h1>
         </div>
         <div className="header-actions">
-          <button className="run-button" data-testid="run-button" onClick={runProtocol} disabled={running}>{running ? "Running" : "Run"}</button>
-          <div className="status-pill" data-testid="identity-level">{identity?.level ?? "guest"}</div>
+          <span className="status-pill">Prototype · simulated funds</span>
+          <div className="status-pill" data-testid="identity-level">{branchDemo ? "isolated demo" : identity?.level ?? "guest"}</div>
           {identity?.level === "beta_override" && <strong className="beta">BETA override verified</strong>}
         </div>
       </header>
       <div className="layout">
-        <nav className="side-nav">{(["dashboard", "identity", "wallet", "chat", "governance", "dex", "sync", "export", "settings", ...(config.betaOverrideEnabled ? ["dev"] : [])] as Tab[]).map((item) => <button className={tab === item ? "active" : ""} key={item} onClick={() => setTab(item)}>{item}</button>)}</nav>
+        <nav className="side-nav" aria-label="Main navigation"><div className="primary-nav">{([['dashboard','Home'],['wallet','Wallet'],['community','Community'],['decisions','Decisions']] as [Tab,string][]).map(([item,label]) => <button aria-current={tab === item ? 'page' : undefined} className={tab === item ? 'active' : ''} key={item} onClick={() => setTab(item)}>{label}</button>)}</div><details className="secondary-nav"><summary>More & settings</summary>{(['identity','id-lab','chat','governance','dex','sync','export','settings',...(config.betaOverrideEnabled ? ['dev'] : [])] as Tab[]).map(item => <button disabled={branchDemo} title={branchDemo ? "Exit demo to access your existing data" : undefined} className={tab === item ? 'active' : ''} key={item} onClick={() => setTab(item)}>{item === 'id-lab' ? 'Aqua ID Lab' : item === 'governance' ? 'Legacy test votes' : item}</button>)}</details></nav>
         <div className="content">
-      {tab === "dashboard" && <section className="panel dashboard-panel">
+      <AlphaNetwork view={tab} identity={key} nodeUrl={nodeUrl} demo={branchDemo} refreshLocal={refresh} />
+      <BranchWorkspace onDemoChange={setBranchDemo} view={tab} identity={key} balance={wallet?.balance ?? 0n} navigate={setTab} />
+      {tab === "id-lab" && <IdLab />}
+      {tab === "dashboard" && !branchDemo && <details className="legacy-tools"><summary>Existing protocol test tools · simulated money</summary><section className="panel dashboard-panel">
         <div className="section-heading">
           <p className="eyebrow">Dashboard</p>
           <h2>Local State</h2>
@@ -454,29 +462,29 @@ function App() {
           <article className="metric-card"><span>Nodes online</span><strong data-testid="online-node-count">{onlineNodes}</strong></article>
         </div>
         <div className="action-row">
-          <button className="run-button secondary-run" onClick={runProtocol} disabled={running}>{running ? "Running" : "Run"}</button>
+          <button data-testid="run-button" className="run-button secondary-run" onClick={runProtocol} disabled={running}>{running ? "Running" : "Run"}</button>
           <button onClick={claimUbi}>Claim weekly UBI</button>
           <button className="ghost-button" onClick={syncNow}>Sync now</button>
         </div>
         <p className="sync-line" data-testid="run-status">Run {runStatus}</p>
         <p className="sync-line">Sync {sync}</p>
-      </section>}
+      </section></details>}
       {tab === "identity" && <section className="panel form-panel">
-        <div className="section-heading"><p className="eyebrow">Identity</p><h2>Active Citizen</h2></div>
-        <input id="email" placeholder="email" />
+        <div className="section-heading"><p className="eyebrow">Identity</p><h2>Your keys, your identity</h2></div>
+        <p>1. Create or restore keys. 2. Open Community to review an invitation. Human-work challenges are optional test evidence, not proof of unique humanity.</p><label htmlFor="email">Optional email for the legacy test identity</label><input id="email" placeholder="email" /><KeyBackup onRestore={refresh} />
         <div className="action-row">
-          <button onClick={makeIdentity}>Create email identity</button>
+          <button disabled={!!key} onClick={makeIdentity}>Create email identity</button>
           <button onClick={() => verified("pohw_lite")}>PoHW-lite challenge</button>
           {config.betaOverrideEnabled && <button data-testid="beta-verify" onClick={() => verified("BETAoverride")}>BETAoverride verify</button>}
         </div>
       </section>}
-      {tab === "wallet" && <section className="panel form-panel">
-        <div className="section-heading"><p className="eyebrow">Wallet</p><h2>Aqua Transfer</h2></div>
-        <input id="send-to" placeholder="recipient user id" />
-        <input id="send-amount" type="number" placeholder="100" />
+      {tab === "wallet" && !branchDemo && <details className="legacy-tools"><summary>Existing local protocol wallet · simulated money</summary><section className="panel form-panel">
+        <div className="section-heading"><p className="eyebrow">Wallet</p><h2>Your wallet</h2></div>
+        <p>Balance: <strong>{formatAqua(wallet?.balance ?? 0n)} simulated Aqua</strong>. Existing balances and Fire/Sump calculations are unchanged.</p><label htmlFor="receive-key">Receive · your user ID</label><input id="receive-key" value={activeUserId} readOnly /><label htmlFor="send-to">Recipient user ID</label><input id="send-to" placeholder="recipient user id" />
+        <label htmlFor="send-amount">Amount in Aqua</label><input id="send-amount" type="number" placeholder="100" />
         <p>Fire tax is shown before send: 4% to Sump.</p>
-        <button onClick={transfer}>Send Aqua</button>
-      </section>}
+        <button onClick={transfer}>Send simulated Aqua</button><h3>Transaction history</h3>{events.filter(e => e.type.startsWith("money.") && (e.author === activeUserId || (e.payload as { to?: string }).to === activeUserId)).slice(-30).reverse().map(e => <p className="break-word" key={e.eventId}>{e.type === "money.transfer" ? "Transfer" : "Weekly UBI"} · {new Date(e.createdAt).toLocaleString()} · {state.accepted.some(a => a.eventId === e.eventId) ? "Locally accepted · simulated" : "Pending / rejected"}</p>)}
+      </section></details>}
       {tab === "chat" && <section className="panel form-panel">
         <div className="section-heading"><p className="eyebrow">Rooms</p><h2>Chaos Chat</h2></div>
         <input id="room-id" placeholder="melbourne-test" />
@@ -485,7 +493,7 @@ function App() {
       </section>}
       {tab === "governance" && <section className="panel form-panel">
         <div className="section-heading"><p className="eyebrow">Governance</p><h2>Proposal Tally</h2></div>
-        <div className="action-row"><button onClick={createProposal}>Create proposal</button><button onClick={() => vote("yes")}>Vote yes</button><button onClick={() => vote("no")}>Vote no</button></div>
+        <p>Legacy public ballot history is read-only. Private voting is not implemented; use the isolated BranchID demo for consent-based public test votes.</p><button onClick={() => setTab("decisions")}>Open Decisions</button>
         <p className="tally" data-testid="tally">yes {tally.yes} no {tally.no} abstain {tally.abstain}</p>
       </section>}
       {tab === "dex" && <section className="panel form-panel">
@@ -533,7 +541,7 @@ function App() {
         <p className="sync-line">For phone LAN testing, use the node URL printed by <code>PHONE_TEST_AQUA.cmd</code>.</p>
         <p>Fieldkit version {FIELDKIT_VERSION}</p>
         <p>Node {nodeUrl}</p>
-        <p>Public exports never include private keys. Encrypted backup extension point is reserved here.</p>
+        <KeyBackup onRestore={refresh} />
       </section>}
       {tab === "dev" && <section className="panel form-panel"><div className="section-heading"><p className="eyebrow">Development</p><h2>Dev Panel</h2></div><p>BETAoverride enabled: {String(config.betaOverrideEnabled)}</p><p>Proxy debug is dev-only.</p></section>}
         </div>
@@ -593,7 +601,7 @@ async function postEvent(url: string, event: AquaEvent): Promise<void> {
       body: JSON.stringify(event),
       signal: controller.signal
     });
-    if (!response.ok && response.status !== 409) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
   } finally {
     window.clearTimeout(timer);
   }

@@ -1,4 +1,4 @@
-const CACHE_NAME = "aqua-v1.0.4";
+const CACHE_NAME = "aqua-v1.1.0-alpha.1";
 const APP_SHELL = ["./", "index.html", "manifest.webmanifest", "icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -17,6 +17,7 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const requestUrl = new URL(event.request.url);
   if (requestUrl.origin !== self.location.origin) return;
+  if (/^\/(health|ledger|events|bundle|dev|gossip)(\/|$)/.test(requestUrl.pathname)) return;
   event.respondWith(
     fetch(event.request)
       .then((response) => {

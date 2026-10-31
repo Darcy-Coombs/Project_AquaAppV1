@@ -14,6 +14,9 @@ The launcher installs dependencies if needed, opens `http://127.0.0.1:5173`, and
 
 ## Phone Test Launch
 
+For **Aqua ID Lab v0.1**, use localhost or trusted HTTPS. Plain phone LAN HTTP
+cannot enrol WebAuthn credentials. See [the ID Lab Android USB forwarding steps](docs/aqua-id-lab-v01.md#running-on-desktop-and-android).
+
 Double-click:
 
 ```text

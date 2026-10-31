@@ -3,19 +3,24 @@ import { pathToFileURL } from "node:url";
 
 test("tester can onboard, verify, claim, and see mobile dashboard", async ({ page }) => {
   await page.goto("/");
+  await page.getByText("More & settings", { exact: true }).click();
+  await page.getByText("Existing protocol test tools", { exact: false }).click();
   await expect(page.getByRole("heading", { name: "Project Aqua" })).toBeVisible();
   await page.getByRole("button", { name: "identity" }).click();
   await page.locator("#email").fill(`alice-${Date.now()}@example.test`);
   await page.getByRole("button", { name: "Create email identity" }).click();
   await page.getByTestId("beta-verify").click();
   await expect(page.getByTestId("identity-level")).toContainText("beta_override");
-  await page.getByRole("button", { name: "dashboard" }).click();
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await page.getByText("Existing protocol test tools", { exact: false }).click();
   await page.getByRole("button", { name: "Claim weekly UBI" }).click();
   await expect(page.getByTestId("balance")).toContainText("480.00");
 });
 
 test("Run button executes a local protocol flow", async ({ page }) => {
   await page.goto("/");
+  await page.getByText("More & settings", { exact: true }).click();
+  await page.getByText("Existing protocol test tools", { exact: false }).click();
   await page.getByTestId("run-button").click();
   await expect(page.getByTestId("identity-level")).toContainText(/beta_override|pohw_lite/);
   await expect(page.getByTestId("balance")).toContainText("480.00");
@@ -24,6 +29,8 @@ test("Run button executes a local protocol flow", async ({ page }) => {
 
 test("Sync scans local active user and nodes", async ({ page }) => {
   await page.goto("/");
+  await page.getByText("More & settings", { exact: true }).click();
+  await page.getByText("Existing protocol test tools", { exact: false }).click();
   await page.getByTestId("run-button").click();
   await expect(page.getByTestId("run-status")).toContainText("run-complete");
   await page.getByRole("button", { name: "sync", exact: true }).click();
@@ -43,6 +50,8 @@ test("mobile install manifest and download controls are available", async ({ pag
     start_url: "."
   });
   await page.goto("/");
+  await page.getByText("More & settings", { exact: true }).click();
+  await page.getByText("Existing protocol test tools", { exact: false }).click();
   await page.getByRole("button", { name: "settings" }).click();
   await expect(page.getByText("Mobile download")).toBeVisible();
   await page.getByTestId("install-app").click();
@@ -52,6 +61,7 @@ test("mobile install manifest and download controls are available", async ({ pag
 test("direct-open fieldkit index renders and runs from file", async ({ page }) => {
   await page.goto(pathToFileURL(`${process.cwd()}/index.html`).toString());
   await expect(page.getByRole("heading", { name: "Project Aqua" })).toBeVisible();
+  await page.getByText("Existing protocol test tools", { exact: false }).click();
   await expect(page.getByRole("heading", { name: "Local State" })).toBeVisible();
   await page.getByTestId("run-button").click();
   await expect(page.getByTestId("run-status")).toContainText("run-complete");

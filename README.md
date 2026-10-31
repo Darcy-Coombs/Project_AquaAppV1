@@ -1,4 +1,25 @@
-# Project Aqua Web App / Fieldkit v1.0.4
+# Project Aqua 1.1.0-alpha.1
+
+Download the Windows portable alpha from [GitHub Releases](https://github.com/Darcy-Coombs/Project_AquaAppV1/releases/tag/v1.1.0-alpha.1). Extract the ZIP, run `RUN_ALPHA.cmd`, and open `http://127.0.0.1:8787`. This is a single-authority testnet with 700 trillion Earth, 100,000 per-account Earth allowance, 480 weekly UBI and 4% Fire into Sump. See [setup, tested behaviour and limitations](docs/alpha-readiness.md).
+
+## BranchID and the new interface
+
+Home, Wallet, Community and Decisions now provide the primary navigation. Existing chat, ID Lab, sync, voucher pools and legacy test tools remain accessible through secondary navigation. All monetary values in this prototype are simulated.
+
+On Windows, from `C:\Users\David\Documents\Poj_Aq_build_goalbuild`:
+
+```powershell
+npm.cmd install
+npm.cmd run dev
+```
+
+Open `http://127.0.0.1:5173`. Choose **Explore demo** for the isolated BranchID experience. In Community, create the prefilled invitation as Maya, switch **Act as** to You, review and accept it. Use **Simulate offline** before acceptance to see pending/reconnect behaviour. In Decisions, propose growth, switch among three members and explicitly consent to public test votes, then advance the demo clock to close. Home allows a funded 480 Aqua simulated claim. Exit/reset/refresh discards the demo without touching your existing wallet, keys or transport.
+
+Real identities remain key-only or admission-pending: the existing gossip relay does not provide secure admission finality or secret ballots. No production membership, governance or payment entitlement is activated. Public ancestry reveals relationships and does not prove globally unique humanity. See [BranchID design, architecture, limitations and migration](docs/branchid-design.md).
+
+Use More & settings → identity/settings → **Encrypted key backup & restore** before changing devices. Existing databases and keys are not migrated or overwritten; pending BranchID requests use an additive, versioned namespace. Private-key recovery is unavailable without your encrypted backup and passphrase.
+
+Validation: `npm.cmd test`, `npm.cmd run build`, and, with the app running, `npx.cmd playwright test tests/e2e/branchid.spec.ts --project chromium --workers 1`. Responsive screenshots are written to `output/playwright/branchid`. Run `npm.cmd run fieldkit:build` to refresh the direct-open HTML distributions.
 
 Browser-first, local-first TypeScript implementation of the Aqua civic-economic protocol. The protocol package is UI-independent and drives identity, UBI, Fire/Sump accounting, Chaos Chat, governance, voucher pools, bundles, and deterministic replay.
 

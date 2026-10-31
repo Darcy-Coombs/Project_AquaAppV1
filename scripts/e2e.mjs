@@ -62,7 +62,7 @@ function stopAll() {
 }
 
 try {
-  const nodeEnv = { ...process.env, AQUA_NODE_PORT: String(nodePort), AQUA_NODE_DB: join(root, `.e2e-node-${nodePort}.sqlite`) };
+  const nodeEnv = { ...process.env, AQUA_ALPHA_TESTNET: "1", AQUA_NODE_PORT: String(nodePort), AQUA_NODE_DB: join(root, `.e2e-node-${nodePort}.sqlite`) };
   const webEnv = { ...process.env, VITE_AQUA_NODE_URL: nodeUrl };
 
   start("node", ["--loader", "./ts-loader.mjs", "src/server.ts"], {

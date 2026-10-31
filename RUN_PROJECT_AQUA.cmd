@@ -39,14 +39,14 @@ if not exist node_modules (
 
 echo.
 echo Starting Aqua node relay and web app...
-echo Web app: http://127.0.0.1:5173
+echo Web app: http://localhost:5173
 echo Node health: http://127.0.0.1:8787/health
 echo.
 echo Leave this window open while using the app.
 echo Press Ctrl+C in this window to stop the stack.
 echo.
 
-start "Aqua Browser Opener" /MIN cmd /c "timeout /t 12 >nul & start http://127.0.0.1:5173"
+start "Aqua Browser Opener" /MIN cmd /c "timeout /t 12 >nul & start http://localhost:5173"
 call npm.cmd run dev
 
 echo.
